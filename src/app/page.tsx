@@ -4,7 +4,6 @@ import { AppShell } from '@/components/app-shell'
 import { CreationCards } from '@/components/creation-cards'
 import { DashboardOverview } from '@/components/dashboard-overview'
 import { MeetingTable } from '@/components/meeting-table'
-import SecretariatLandingPage from '@/components/ui/fin-tech-landing-page'
 import { ensureUserProvisioned } from '@/lib/auth/provision'
 import {
   canViewOrganizationScope,
@@ -52,7 +51,7 @@ export default async function DashboardPage({
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) return <SecretariatLandingPage />
+  if (!user) redirect('/demo')
 
   const {
     committee: committeeParam,

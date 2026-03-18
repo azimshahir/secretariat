@@ -423,6 +423,9 @@ function RecordingStepPanel({
 }) {
   const [isRearrangeDialogOpen, setIsRearrangeDialogOpen] = useState(false)
   const skippedAgendaIds = existingAgendas.filter(a => a.is_skipped).map(a => a.id)
+  const hasGeneratedMom =
+    Object.keys(currentMinutesByAgenda).length > 0
+    || Object.keys(generationState.liveMinutesByAgenda).length > 0
 
   return (
     <div className="space-y-6">
@@ -506,25 +509,40 @@ function RecordingStepPanel({
         )}
       </section>
 
-      <MeetingIntelligenceDashboard
-        meetingId={meetingId}
-        meetingTitle={meetingTitle}
-        meetingDate={meetingDate}
-        committeeName={committeeName}
-        existingAgendas={existingAgendas}
-        timelineRows={timelineRows}
-        currentMinutesByAgenda={currentMinutesByAgenda}
-        committeeSpeakers={committeeSpeakers}
-        isUnlocked
-      />
+      {hasGeneratedMom ? (
+        <>
+          <MeetingIntelligenceDashboard
+            meetingId={meetingId}
+            meetingTitle={meetingTitle}
+            meetingDate={meetingDate}
+            committeeName={committeeName}
+            existingAgendas={existingAgendas}
+            timelineRows={timelineRows}
+            currentMinutesByAgenda={currentMinutesByAgenda}
+            committeeSpeakers={committeeSpeakers}
+            isUnlocked
+          />
 
-      <DashboardChatbotSection
-        meetingId={meetingId}
-        agendas={existingAgendas}
-        currentMinutesByAgenda={currentMinutesByAgenda}
-        liveMinutesByAgenda={generationState.liveMinutesByAgenda}
-        isGenerating={generationState.isGenerating}
-      />
+          <DashboardChatbotSection
+            meetingId={meetingId}
+            agendas={existingAgendas}
+            currentMinutesByAgenda={currentMinutesByAgenda}
+            liveMinutesByAgenda={generationState.liveMinutesByAgenda}
+            isGenerating={generationState.isGenerating}
+          />
+        </>
+      ) : (
+        <section className="rounded-[28px] border border-dashed border-zinc-300 bg-white/80 px-6 py-8 text-center shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Step 3</p>
+          <h4 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950">MoM dashboard locked until generation starts</h4>
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-zinc-500">
+            Dashboard di bawah Step 3 hanya akan muncul selepas MoM sudah dijana. Kalau anda mahu run semula, boleh regenerate pada tab
+            {' '}
+            <span className="font-medium text-zinc-700">Generate MoM</span>
+            .
+          </p>
+        </section>
+      )}
 
       <GenerateDialog
         open={isRearrangeDialogOpen}
