@@ -1,0 +1,10 @@
+Usage: stitch-mcp site [options]
+
+Build a structured site from Stitch screens
+
+Options:
+  -o, --output <dir>  Output directory (default: ".")
+  -e, --export        Export screen-to-route config as build_site JSON
+                      (default: false)
+  -p, --project <id>  Project ID
+  -h, --help          display help for command

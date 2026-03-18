@@ -1,0 +1,9 @@
+Usage: stitch-mcp proxy [options]
+
+Start the Stitch MCP proxy server
+
+Options:
+  --transport <type>  Transport type (stdio) (default: "stdio")
+  --port <number>     Port number
+  --debug             Enable debug logging to file (default: false)
+  -h, --help          display help for command

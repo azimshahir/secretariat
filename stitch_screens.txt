@@ -1,0 +1,7 @@
+Usage: stitch-mcp screens [options]
+
+Explore all screens in a project
+
+Options:
+  -p, --project <id>  Project ID
+  -h, --help          display help for command

@@ -1,0 +1,13 @@
+Usage: stitch-mcp init [options]
+
+Initialize authentication and MCP configuration
+
+Options:
+  --local                      Install gcloud locally to project directory
+                               instead of user home (default: false)
+  -y, --yes                    Auto-approve verification commands (default:
+                               false)
+  --defaults                   Use default values for prompts (default: false)
+  -c, --client <client>        MCP client to configure
+  -t, --transport <transport>  Transport type (http or stdio)
+  -h, --help                   display help for command

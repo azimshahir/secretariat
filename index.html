@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secretariat.my - Intelligent MoM Generation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            black: '#09090b',    /* Deep Space Black */
+                            surface: '#18181b',  /* Glassy Obsidian / Card BG */
+                            border: '#27272a',   /* Subtle Border */
+                            indigo: '#4f46e5',   /* Primary Vivid Indigo */
+                            cyan: '#06b6d4',     /* Accent Neon Cyan */
+                            text: '#f8fafc',     /* Crisp White */
+                            muted: '#94a3b8',    /* Muted Slate */
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        display: ['Outfit', 'sans-serif'],
+                    },
+                    backgroundImage: {
+                        'glow-gradient': 'radial-gradient(circle at 50% -20%, rgba(79, 70, 229, 0.15), rgba(9, 9, 11, 0) 70%)',
+                    }
+                }
+            }
+        }
+    </script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            background-color: #09090b;
+            /* brand-black */
+            color: #f8fafc;
+            /* brand-text */
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        h1,
+        h2,
+        h3,
+        .font-display {
+            font-family: 'Outfit', sans-serif;
+        }
+
+        /* Glassmorphism Utilities */
+        .glass-card {
+            background: rgba(24, 24, 27, 0.6);
+            /* brand-surface with opacity */
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(39, 39, 42, 0.8);
+            /* brand-border */
+        }
+
+        .neon-button {
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .neon-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .neon-button:hover::before {
+            left: 100%;
+        }
+
+        .neon-button:hover {
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+            /* brand-cyan glow */
+            border-color: #06b6d4;
+        }
+
+        /* Clean Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #09090b;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #27272a;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4f46e5;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen relative overflow-x-hidden selection:bg-brand-indigo/30 selection:text-brand-cyan">
+
+    <!-- Subtle Background Glow Effect -->
+    <div class="absolute inset-0 bg-glow-gradient pointer-events-none z-0"></div>
+
+    <!-- === NAVBAR === -->
+    <nav
+        class="fixed w-full z-50 glass-card border-b-0 border-brand-border/50 py-4 px-6 sm:px-12 flex justify-between items-center transition-all duration-300 shadow-lg shadow-black/20">
+        <!-- Logo Area -->
+        <div class="flex items-center gap-3">
+            <div class="h-8 flex items-center justify-center">
+                <img src="./public/logo.png" alt="Secretariat"
+                    class="h-full w-auto object-contain drop-shadow-[0_0_8px_rgba(79,70,229,0.5)]" />
+            </div>
+            <span class="font-display font-bold text-xl tracking-tight hidden sm:block">Secretariat<span
+                    class="text-brand-cyan">.my</span></span>
+        </div>
+
+        <!-- Desktop Links -->
+        <div class="hidden md:flex gap-8 items-center text-sm font-medium text-brand-muted">
+            <a href="#" class="hover:text-brand-text transition-colors">Features</a>
+            <a href="#" class="hover:text-brand-text transition-colors">How it Works</a>
+            <a href="#" class="hover:text-brand-text transition-colors">Pricing</a>
+        </div>
+
+        <!-- Action Area -->
+        <div class="flex gap-4 items-center">
+            <a href="#"
+                class="text-sm font-medium text-brand-muted hover:text-brand-text transition-colors hidden sm:block">Log
+                in</a>
+            <a href="#"
+                class="neon-button bg-brand-surface border border-brand-indigo/50 text-brand-text text-sm font-semibold py-2 px-5 rounded-lg flex items-center gap-2">
+                Generate MoM
+                <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+            </a>
+        </div>
+    </nav>
+
+    <!-- === HERO SECTION === -->
+    <main
+        class="relative z-10 pt-32 pb-20 px-6 sm:px-12 max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-16">
+
+        <!-- Left Text Content -->
+        <div class="flex-1 text-center lg:text-left">
+            <div
+                class="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-card border-brand-indigo/30 mb-6 mx-auto lg:mx-0">
+                <span class="flex w-2 h-2 bg-brand-cyan rounded-full animate-pulse shadow-[0_0_8px_#06b6d4]"></span>
+                <span class="text-xs font-medium text-brand-cyan uppercase tracking-wider">AI-Powered Secretariat</span>
+            </div>
+
+            <h1 class="font-display text-5xl sm:text-6xl lg:text-7xl font-bold leading-tight mb-6">
+                Turn hours of meetings into <br class="hidden sm:block" />
+                <span class="text-transparent bg-clip-text bg-gradient-to-r from-brand-indigo to-brand-cyan">minutes of
+                    action.</span>
+            </h1>
+
+            <p class="text-lg sm:text-xl text-brand-muted max-w-2xl mx-auto lg:mx-0 mb-10 leading-relaxed">
+                Upload your meeting recordings or transcripts. Our AI instantly extracts key decisions, task
+                delegations, and generates perfectly formatted Minutes of Meeting (MoM).
+            </p>
+
+            <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+                <button
+                    class="neon-button bg-brand-indigo text-white font-semibold py-3.5 px-8 rounded-xl flex items-center justify-center gap-3 text-lg shadow-[0_0_20px_rgba(79,70,229,0.3)]">
+                    Start Generating
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M17 8l4 4m0 0l-4 4m4-4H3"></path>
+                    </svg>
+                </button>
+                <button
+                    class="glass-card hover:bg-brand-surface/80 text-brand-text font-medium py-3.5 px-8 rounded-xl transition-colors flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z">
+                        </path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    Watch Demo
+                </button>
+            </div>
+
+            <!-- Trust Indicators -->
+            <div
+                class="mt-12 pt-8 border-t border-brand-border/50 flex flex-wrap justify-center lg:justify-start gap-8 items-center text-brand-muted/70 text-sm font-medium">
+                <span class="flex items-center gap-2"><svg class="w-4 h-4 text-green-400" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg> 99% Accuracy</span>
+                <span class="flex items-center gap-2"><svg class="w-4 h-4 text-green-400" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg> Secure & Private</span>
+                <span class="flex items-center gap-2"><svg class="w-4 h-4 text-green-400" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg> PDF/Word Export</span>
+            </div>
+        </div>
+
+        <!-- Right Visual / Upload Component -->
+        <div class="flex-1 w-full max-w-lg relative">
+            <!-- Decorative Glow Behind Card -->
+            <div class="absolute inset-0 bg-brand-cyan/20 blur-[100px] rounded-full z-0"></div>
+
+            <div
+                class="glass-card rounded-2xl p-6 sm:p-8 relative z-10 shadow-2xl shadow-black/50 border border-brand-indigo/20">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="font-display font-semibold text-xl">New Meeting</h3>
+                    <div class="flex gap-2">
+                        <div class="w-3 h-3 rounded-full bg-brand-border"></div>
+                        <div class="w-3 h-3 rounded-full bg-brand-border"></div>
+                        <div class="w-3 h-3 rounded-full bg-brand-indigo/50"></div>
+                    </div>
+                </div>
+
+                <!-- Drag & Drop Area -->
+                <div
+                    class="border-2 border-dashed border-brand-border hover:border-brand-indigo/50 bg-brand-black/50 rounded-xl p-8 text-center transition-colors cursor-pointer group mb-6">
+                    <div
+                        class="w-16 h-16 rounded-full glass-card flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(79,70,229,0.2)]">
+                        <svg class="w-8 h-8 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
+                            </path>
+                        </svg>
+                    </div>
+                    <p class="font-medium text-brand-text mb-1">Drag & drop audio or text</p>
+                    <p class="text-sm text-brand-muted">MP3, WAV, M4A, TXT up to 50MB</p>
+                </div>
+
+                <!-- Fake Processing UI -->
+                <div class="space-y-4">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-brand-muted">Processing 'Q3_Board_Meeting.mp3'</span>
+                        <span class="text-brand-cyan font-medium animate-pulse">Analyzing...</span>
+                    </div>
+                    <div class="w-full bg-brand-black rounded-full h-2 overflow-hidden border border-brand-border">
+                        <div
+                            class="bg-gradient-to-r from-brand-indigo to-brand-cyan h-2 rounded-full w-2/3 shadow-[0_0_10px_#06b6d4]">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Decorative Floating Elements -->
+            <div class="glass-card hidden sm:flex items-center gap-3 absolute -bottom-6 -left-12 p-4 rounded-xl shadow-lg border-brand-cyan/30 animate-bounce"
+                style="animation-duration: 3s;">
+                <div class="bg-brand-cyan/20 p-2 rounded-lg text-brand-cyan">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-brand-muted">Action Item Detected</p>
+                    <p class="text-sm font-semibold">"Deploy frontend by Friday"</p>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- === FEATURES PREVIEW === -->
+    <section class="py-20 px-6 sm:px-12 max-w-7xl mx-auto border-t border-brand-border/30 relative z-10">
+        <div class="text-center mb-16">
+            <h2 class="font-display text-3xl sm:text-4xl font-bold mb-4">Everything a Secretary Does, <span
+                    class="text-brand-cyan">But Instant.</span></h2>
+            <p class="text-brand-muted max-w-2xl mx-auto">Stop worrying about taking notes. Participate fully in the
+                discussion while our AI handles the documentation.</p>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-8">
+            <!-- Feature 1 -->
+            <div
+                class="glass-card hover:-translate-y-2 transition-transform duration-300 p-8 rounded-2xl border-t border-t-brand-border/80">
+                <div
+                    class="w-12 h-12 bg-brand-indigo/20 rounded-xl flex items-center justify-center text-brand-indigo mb-6 shadow-[inset_0_0_10px_rgba(79,70,229,0.5)]">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                    </svg>
+                </div>
+                <h3 class="font-display text-xl font-bold mb-3">Smart Structuring</h3>
+                <p class="text-brand-muted text-sm leading-relaxed">Automatically identifies topics, decisions made, and
+                    structures them into a professional MoM format.</p>
+            </div>
+
+            <!-- Feature 2 -->
+            <div
+                class="glass-card hover:-translate-y-2 transition-transform duration-300 p-8 rounded-2xl border-t border-t-brand-cyan/30 relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-brand-cyan/10 blur-[50px] rounded-full"></div>
+                <div
+                    class="w-12 h-12 bg-brand-cyan/20 rounded-xl flex items-center justify-center text-brand-cyan mb-6 shadow-[inset_0_0_10px_rgba(6,182,212,0.5)] relative z-10">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z">
+                        </path>
+                    </svg>
+                </div>
+                <h3 class="font-display text-xl font-bold mb-3 relative z-10">Action Delegation</h3>
+                <p class="text-brand-muted text-sm leading-relaxed relative z-10">Extracts 'Who does What by When' and
+                    highlights action items clearly so nothing falls through the cracks.</p>
+            </div>
+
+            <!-- Feature 3 -->
+            <div
+                class="glass-card hover:-translate-y-2 transition-transform duration-300 p-8 rounded-2xl border-t border-t-brand-border/80">
+                <div
+                    class="w-12 h-12 bg-brand-black/50 border border-brand-border rounded-xl flex items-center justify-center text-brand-text mb-6">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">
+                        </path>
+                    </svg>
+                </div>
+                <h3 class="font-display text-xl font-bold mb-3">1-Click Export</h3>
+                <p class="text-brand-muted text-sm leading-relaxed">Download your generated minutes instantly in
+                    perfectly formatted PDF or Word Document ready to be emailed to stakeholders.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- === HOW IT WORKS === -->
+    <section class="py-24 px-6 sm:px-12 max-w-7xl mx-auto relative z-10">
+        <div class="text-center mb-16">
+            <h2 class="font-display text-3xl sm:text-4xl font-bold mb-4">How It Works</h2>
+            <p class="text-brand-muted max-w-2xl mx-auto">Three simple steps to perfect meeting minutes.</p>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-8 relative">
+            <!-- Connecting Line for Desktop -->
+            <div
+                class="hidden md:block absolute top-1/2 left-0 w-full h-0.5 bg-gradient-to-r from-brand-indigo/10 via-brand-cyan/20 to-brand-indigo/10 -z-10 transform -translate-y-1/2">
+            </div>
+
+            <!-- Step 1 -->
+            <div class="text-center relative">
+                <div
+                    class="w-16 h-16 mx-auto glass-card rounded-full flex items-center justify-center text-2xl font-display font-bold text-brand-text mb-6 border border-brand-indigo/50 bg-brand-surface shadow-[0_0_15px_rgba(79,70,229,0.3)]">
+                    1</div>
+                <h3 class="font-display text-xl font-bold mb-3">Upload</h3>
+                <p class="text-brand-muted text-sm px-4">Drag and drop your audio recordings (MP3, WAV) or text
+                    transcripts.</p>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="text-center relative">
+                <div
+                    class="w-16 h-16 mx-auto glass-card rounded-full flex items-center justify-center text-2xl font-display font-bold text-brand-text mb-6 border border-brand-cyan/50 bg-brand-surface shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+                    2</div>
+                <h3 class="font-display text-xl font-bold mb-3">AI Analysis</h3>
+                <p class="text-brand-muted text-sm px-4">Our engine intelligently processes the content, structuring
+                    topics and extracting actions.</p>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="text-center relative">
+                <div
+                    class="w-16 h-16 mx-auto glass-card rounded-full flex items-center justify-center text-2xl font-display font-bold text-brand-text mb-6 border border-brand-indigo/50 bg-brand-surface shadow-[0_0_15px_rgba(79,70,229,0.3)]">
+                    3</div>
+                <h3 class="font-display text-xl font-bold mb-3">Download</h3>
+                <p class="text-brand-muted text-sm px-4">Export your perfectly formatted Minutes of Meeting in PDF or
+                    Word format instantly.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- === PRICING === -->
+    <section class="py-24 px-6 sm:px-12 max-w-7xl mx-auto border-t border-brand-border/30 relative z-10">
+        <!-- Glow Behind Pricing -->
+        <div
+            class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 bg-brand-indigo/5 blur-[120px] rounded-full pointer-events-none">
+        </div>
+
+        <div class="text-center mb-16 relative z-10">
+            <h2 class="font-display text-3xl sm:text-4xl font-bold mb-4">Simple, Transparent Pricing</h2>
+            <p class="text-brand-muted max-w-2xl mx-auto">Choose the plan that fits your needs. No hidden fees.</p>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto relative z-10">
+            <!-- Free Plan -->
+            <div class="glass-card rounded-2xl p-8 border-t border-t-brand-border/80 flex flex-col">
+                <h3 class="text-xl font-bold text-brand-text mb-2">Free</h3>
+                <div class="text-brand-muted text-sm mb-6">Perfect to try out</div>
+                <div class="text-4xl font-display font-bold mb-6">RM 0<span
+                        class="text-lg text-brand-muted font-normal">/mo</span></div>
+                <ul class="space-y-4 mb-8 flex-1 text-sm text-brand-text/90">
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> 3 Meetings per month</li>
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> Max 30 mins audio</li>
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> Standard support</li>
+                </ul>
+                <button
+                    class="w-full glass-card hover:bg-brand-surface/80 text-brand-text font-medium py-3 rounded-xl transition-colors">Current
+                    Plan</button>
+            </div>
+
+            <!-- Pro Plan -->
+            <div
+                class="glass-card rounded-2xl p-8 border border-brand-indigo/50 relative flex flex-col transform md:-translate-y-4 shadow-2xl shadow-brand-indigo/10">
+                <div
+                    class="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-brand-indigo text-white text-xs font-bold px-4 py-1 rounded-full tracking-wide">
+                    MOST POPULAR</div>
+                <h3 class="text-xl font-bold text-brand-cyan mb-2">Pro</h3>
+                <div class="text-brand-muted text-sm mb-6">For busy professionals</div>
+                <div class="text-4xl font-display font-bold mb-6">RM 9.90<span
+                        class="text-lg text-brand-muted font-normal">/mo</span></div>
+                <ul class="space-y-4 mb-8 flex-1 text-sm text-brand-text/90">
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> 20 Meetings per month</li>
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> Max 2 hours audio</li>
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> Priority support</li>
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> Custom branding on export</li>
+                </ul>
+                <button class="w-full neon-button bg-brand-indigo text-white font-semibold py-3 rounded-xl">Get
+                    Pro</button>
+            </div>
+
+            <!-- Max Plan -->
+            <div class="glass-card rounded-2xl p-8 border-t border-t-brand-border/80 flex flex-col">
+                <h3 class="text-xl font-bold text-brand-text mb-2">Max</h3>
+                <div class="text-brand-muted text-sm mb-6">For enterprise teams</div>
+                <div class="text-4xl font-display font-bold mb-6">RM 49.90<span
+                        class="text-lg text-brand-muted font-normal">/mo</span></div>
+                <ul class="space-y-4 mb-8 flex-1 text-sm text-brand-text/90">
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> Unlimited Meetings</li>
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> Unlimited audio length</li>
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> 24/7 Premium support</li>
+                    <li class="flex items-center gap-3"><svg class="w-5 h-5 text-brand-cyan" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg> Team collaboration</li>
+                </ul>
+                <button
+                    class="w-full glass-card hover:bg-brand-surface/80 text-brand-text font-medium py-3 rounded-xl transition-colors">Get
+                    Max</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- === FOOTER === -->
+    <footer class="border-t border-brand-border/50 bg-brand-black pt-16 pb-8 relative z-10">
+        <div class="max-w-7xl mx-auto px-6 sm:px-12 grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
+            <div class="md:col-span-2">
+                <div class="flex items-center gap-2 mb-4">
+                    <div class="h-6 flex items-center justify-center">
+                        <img src="./public/logo.png" alt="Secretariat" class="h-full w-auto object-contain" />
+                    </div>
+                    <span class="font-display font-bold text-lg">Secretariat<span
+                            class="text-brand-cyan">.my</span></span>
+                </div>
+                <p class="text-brand-muted text-sm max-w-sm mb-6">Empowering professionals globally by turning hours of
+                    meetings into minutes of action. Hosted securely in the cloud.</p>
+                <div class="flex gap-4">
+                    <a href="#" class="text-brand-muted hover:text-brand-cyan transition-colors"><svg class="w-5 h-5"
+                            fill="currentColor" viewBox="0 0 24 24">
+                            <path
+                                d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z" />
+                        </svg></a>
+                    <a href="#" class="text-brand-muted hover:text-brand-indigo transition-colors"><svg class="w-5 h-5"
+                            fill="currentColor" viewBox="0 0 24 24">
+                            <path
+                                d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" />
+                        </svg></a>
+                </div>
+            </div>
+
+            <div>
+                <h4 class="font-bold text-brand-text mb-4">Product</h4>
+                <ul class="space-y-2 text-sm text-brand-muted">
+                    <li><a href="#" class="hover:text-brand-cyan transition-colors">Features</a></li>
+                    <li><a href="#" class="hover:text-brand-cyan transition-colors">Pricing</a></li>
+                    <li><a href="#" class="hover:text-brand-cyan transition-colors">Use Cases</a></li>
+                    <li><a href="#" class="hover:text-brand-cyan transition-colors">Changelog</a></li>
+                </ul>
+            </div>
+
+            <div>
+                <h4 class="font-bold text-brand-text mb-4">Legal</h4>
+                <ul class="space-y-2 text-sm text-brand-muted">
+                    <li><a href="#" class="hover:text-brand-cyan transition-colors">Privacy Policy</a></li>
+                    <li><a href="#" class="hover:text-brand-cyan transition-colors">Terms of Service</a></li>
+                    <li><a href="#" class="hover:text-brand-cyan transition-colors">Data Security</a></li>
+                    <li><a href="#" class="hover:text-brand-cyan transition-colors">Cookie Policy</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <div
+            class="max-w-7xl mx-auto px-6 sm:px-12 flex flex-col md:flex-row items-center justify-between border-t border-brand-border/30 pt-8">
+            <p class="text-sm text-brand-muted/70 mb-4 md:mb-0">© 2026 Secretariat.my. All rights reserved.</p>
+            <div class="flex items-center gap-2 text-sm text-brand-muted/70">
+                <span>Designed with</span>
+                <span class="text-brand-cyan">♥</span>
+                <span>for modern teams</span>
+            </div>
+        </div>
+    </footer>
+</body>
+
+</html>

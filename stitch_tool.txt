@@ -1,0 +1,10 @@
+Usage: stitch-mcp tool [options] [toolName]
+
+Invoke MCP tools directly
+
+Options:
+  -s, --schema            Show tool arguments and schema
+  -d, --data <json>       JSON data (like curl -d)
+  -f, --data-file <path>  Read JSON from file (like curl -d @file)
+  -o, --output <format>   Output format: json, pretty, raw (default: "pretty")
+  -h, --help              display help for command

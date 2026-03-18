@@ -1,0 +1,7 @@
+Speaker 1: Hello everyone, let's start the Q3 strategy sync.
+Speaker 2: I've prepared the product roadmap slides.
+Speaker 1: Great. Let's focus on user onboarding and security. Mike, can you handle the onboarding emails?
+Mike: Yes, by August 15th.
+Sarah: And I will finish the SSO integration by next Friday.
+Speaker 1: Perfect. Team, please review the enterprise pricing before August 20th.
+Team: Understood.
