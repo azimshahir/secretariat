@@ -27,12 +27,13 @@ export async function updateSession(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
   const isApiRoute = request.nextUrl.pathname.startsWith('/api')
+  const pathname = request.nextUrl.pathname
 
   if (isApiRoute) return supabaseResponse
 
   // Redirect unauthenticated users to login (except login & auth callback)
-  const publicPaths = ['/login', '/auth', '/demo', '/landing', '/features', '/product', '/security', '/pricing', '/try']
-  const isPublicPath = publicPaths.some(p => request.nextUrl.pathname.startsWith(p))
+  const publicPaths = ['/login', '/auth', '/home', '/landing', '/features', '/product', '/security', '/pricing', '/try']
+  const isPublicPath = pathname === '/' || publicPaths.some(p => pathname.startsWith(p))
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone()

@@ -1,5 +1,5 @@
-import FinTechLandingPage from "@/components/ui/fin-tech-landing-page";
+import { redirect } from 'next/navigation'
 
-export default function DemoOne() {
-    return <FinTechLandingPage />;
+export default function DemoRedirectPage() {
+  redirect('/home')
 }

@@ -51,7 +51,7 @@ export default async function DashboardPage({
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) redirect('/demo')
+  if (!user) redirect('/home')
 
   const {
     committee: committeeParam,
