@@ -2,7 +2,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { ShieldCheck, ArrowUpRight, CheckCircle2, FileText, Users, Download, PlayCircle, Zap } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, FileText, Users, Download, PlayCircle, Zap } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -173,14 +173,6 @@ export function HeroSection() {
                     <Stat label="Hours Saved" value="1M+" />
                 </div>
 
-                <div className="mt-8 flex items-center gap-8 opacity-70">
-                    <span className="text-xs font-semibold tracking-wider text-slate-500 uppercase">Trusted By Leaders</span>
-                    <div className="flex items-center gap-6 text-slate-400">
-                        <span className="font-semibold text-lg hover:text-slate-600 transition-colors cursor-default">Maybank</span>
-                        <span className="font-semibold text-lg hover:text-slate-600 transition-colors cursor-default">CIMB</span>
-                        <span className="font-semibold text-lg hover:text-slate-600 transition-colors cursor-default">Petronas</span>
-                    </div>
-                </div>
             </div>
 
             {/* Right: Interactive Demo */}
