@@ -1,5 +1,6 @@
 'use client'
 
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
@@ -49,7 +50,6 @@ export function Navbar({
 }: NavbarProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const supabase = createClient()
   const newMeetingHref = activeCommitteeId
     ? `/meeting/new?committee=${activeCommitteeId}`
@@ -65,12 +65,6 @@ export function Navbar({
     await supabase.auth.signOut()
     router.push('/login')
     router.refresh()
-  }
-
-  function handleScopeChange(nextScope: DashboardScope) {
-    const params = new URLSearchParams(searchParams.toString())
-    params.set('scope', nextScope)
-    router.push(`${pathname}?${params.toString()}`)
   }
 
   return (
@@ -116,32 +110,9 @@ export function Navbar({
         </div>
 
         {canViewOrgScope && pathname === '/' ? (
-          <div className="hidden items-center rounded-[12px] border border-white/70 bg-white/92 p-1 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.42)] lg:flex">
-            <button
-              type="button"
-              onClick={() => handleScopeChange('my')}
-              className={cn(
-                'rounded-[10px] px-3 py-1.5 text-[0.8rem] transition-colors',
-                dashboardScope === 'my'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              My Secretariats
-            </button>
-            <button
-              type="button"
-              onClick={() => handleScopeChange('org')}
-              className={cn(
-                'rounded-[10px] px-3 py-1.5 text-[0.8rem] transition-colors',
-                dashboardScope === 'org'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              Organization
-            </button>
-          </div>
+          <Suspense fallback={null}>
+            <ScopeToggle dashboardScope={dashboardScope} />
+          </Suspense>
         ) : null}
 
         <CreateActionMenu
@@ -183,5 +154,46 @@ export function Navbar({
         </DropdownMenu>
       </div>
     </header>
+  )
+}
+
+function ScopeToggle({ dashboardScope }: { dashboardScope?: DashboardScope }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  function handleScopeChange(nextScope: DashboardScope) {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('scope', nextScope)
+    router.push(`${pathname}?${params.toString()}`)
+  }
+
+  return (
+    <div className="hidden items-center rounded-[12px] border border-white/70 bg-white/92 p-1 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.42)] lg:flex">
+      <button
+        type="button"
+        onClick={() => handleScopeChange('my')}
+        className={cn(
+          'rounded-[10px] px-3 py-1.5 text-[0.8rem] transition-colors',
+          dashboardScope === 'my'
+            ? 'bg-primary text-primary-foreground'
+            : 'text-muted-foreground hover:text-foreground'
+        )}
+      >
+        My Secretariats
+      </button>
+      <button
+        type="button"
+        onClick={() => handleScopeChange('org')}
+        className={cn(
+          'rounded-[10px] px-3 py-1.5 text-[0.8rem] transition-colors',
+          dashboardScope === 'org'
+            ? 'bg-primary text-primary-foreground'
+            : 'text-muted-foreground hover:text-foreground'
+        )}
+      >
+        Organization
+      </button>
+    </div>
   )
 }

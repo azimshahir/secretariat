@@ -1,8 +1,10 @@
+import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { AppShell } from '@/components/app-shell'
 import { updateCustomRequestStatus } from '@/actions/admin-custom-requests'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
-import { AI_PROVIDER_MODELS, getEffectiveAiConfigForOrganization } from '@/lib/ai/model-config'
+import { AI_PROVIDER_MODELS } from '@/lib/ai/catalog'
+import { getEffectiveAiConfigsForOrganization } from '@/lib/ai/model-config'
 import { INDUSTRY_CATEGORIES } from '@/lib/ai/persona-templates'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { AdminTabs } from './admin-tabs'
@@ -145,7 +147,7 @@ export default async function AdminPage() {
     user_name: (req.user_id ? profileMap[req.user_id] : null) ?? null,
   }))
 
-  const aiConfig = await getEffectiveAiConfigForOrganization(orgId)
+  const aiConfigs = await getEffectiveAiConfigsForOrganization(orgId)
 
   return (
     <AppShell
@@ -156,26 +158,27 @@ export default async function AdminPage() {
       description="Manage users, subscriptions, committee knowledge bases, and organization-wide settings."
       containerClassName="max-w-[1500px]"
     >
-      <AdminTabs
-        currentUserId={user.id}
-        totalUsers={orgUsers.length}
-        totalMeetings={totalMeetings ?? 0}
-        activeMeetings={activeMeetings ?? 0}
-        meetingsThisMonth={meetingsThisMonth ?? 0}
-        totalCommittees={committeeList.length}
-        recentActivity={recentActivity}
-        orgUsers={orgUsers}
-        planBreakdown={planBreakdown}
-        monthlyMeetings={monthlyMeetings}
-        committees={committeesData}
-        categories={[...INDUSTRY_CATEGORIES]}
-        aiProvider={aiConfig.provider}
-        aiModel={aiConfig.model}
-        aiOptions={AI_PROVIDER_MODELS}
-        auditLogs={formattedLogs}
-        customRequests={customRequestsFormatted}
-        onUpdateCustomRequestStatus={updateCustomRequestStatus}
-      />
+      <Suspense fallback={null}>
+        <AdminTabs
+          currentUserId={user.id}
+          totalUsers={orgUsers.length}
+          totalMeetings={totalMeetings ?? 0}
+          activeMeetings={activeMeetings ?? 0}
+          meetingsThisMonth={meetingsThisMonth ?? 0}
+          totalCommittees={committeeList.length}
+          recentActivity={recentActivity}
+          orgUsers={orgUsers}
+          planBreakdown={planBreakdown}
+          monthlyMeetings={monthlyMeetings}
+          committees={committeesData}
+          categories={[...INDUSTRY_CATEGORIES]}
+          aiConfigs={aiConfigs}
+          aiOptions={AI_PROVIDER_MODELS}
+          auditLogs={formattedLogs}
+          customRequests={customRequestsFormatted}
+          onUpdateCustomRequestStatus={updateCustomRequestStatus}
+        />
+      </Suspense>
     </AppShell>
   )
 }

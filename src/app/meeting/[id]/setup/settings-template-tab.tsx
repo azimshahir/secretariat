@@ -81,7 +81,8 @@ export function SettingsTemplateTab({ meetingId, committeeId, groups, onGroupsCh
     }
 
     if (!committeeId) {
-      throw new Error('No committee linked — assign a committee first')
+      toast.error('No committee linked — assign a committee first')
+      return
     }
 
     try {
