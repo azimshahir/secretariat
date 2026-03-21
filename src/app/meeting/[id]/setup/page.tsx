@@ -16,33 +16,52 @@ export default async function MeetingSetupPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const { supabase, profile, committees, activeSecretariats } =
-    await requireAuthedAppContext()
 
-  const { data: meeting } = await supabase
+  let authedContext: Awaited<ReturnType<typeof requireAuthedAppContext>>
+  try {
+    authedContext = await requireAuthedAppContext()
+  } catch (error) {
+    console.error('[setup/page] requireAuthedAppContext failed:', error)
+    throw error // re-throw redirects
+  }
+
+  const { supabase, profile, committees, activeSecretariats } = authedContext
+
+  const { data: meeting, error: meetingError } = await supabase
     .from('meetings')
     .select('*, committees(name), organizations(name)')
     .eq('id', id)
     .single()
 
+  if (meetingError) {
+    console.error('[setup/page] Meeting query error:', meetingError)
+  }
   if (!meeting) redirect('/')
 
-  const { data: agendas } = await supabase
+  const { data: agendas, error: agendasError } = await supabase
     .from('agendas')
     .select('*')
     .eq('meeting_id', id)
     .order('sort_order')
+
+  if (agendasError) {
+    console.error('[setup/page] Agendas query error:', agendasError)
+  }
 
   const agendaRows = agendas ?? []
   const agendaIds = agendaRows.map(agenda => agenda.id)
   const currentMinutesByAgenda: Record<string, MinuteEntry> = {}
 
   if (agendaIds.length > 0) {
-    const { data: minutes } = await supabase
+    const { data: minutes, error: minutesError } = await supabase
       .from('minutes')
       .select('id, agenda_id, content, updated_at')
       .eq('is_current', true)
       .in('agenda_id', agendaIds)
+
+    if (minutesError) {
+      console.error('[setup/page] Minutes query error:', minutesError)
+    }
 
     ;(minutes ?? []).forEach(minute => {
       currentMinutesByAgenda[minute.agenda_id] = {
@@ -62,10 +81,14 @@ export default async function MeetingSetupPage({
   ]
   const templatePromptById = new Map<string, string>()
   if (templateIds.length > 0) {
-    const { data: templates } = await supabase
+    const { data: templates, error: templatesError } = await supabase
       .from('format_templates')
       .select('id, prompt_text')
       .in('id', templateIds)
+
+    if (templatesError) {
+      console.error('[setup/page] Templates query error:', templatesError)
+    }
 
     ;(templates ?? []).forEach(template => {
       templatePromptById.set(template.id, template.prompt_text)
@@ -84,22 +107,30 @@ export default async function MeetingSetupPage({
       .filter((entry): entry is readonly [string, string] => Boolean(entry))
   )
 
-  const { data: transcripts } = await supabase
+  const { data: transcripts, error: transcriptsError } = await supabase
     .from('transcripts')
     .select('id')
     .eq('meeting_id', id)
     .order('created_at', { ascending: false })
     .limit(1)
 
+  if (transcriptsError) {
+    console.error('[setup/page] Transcripts query error:', transcriptsError)
+  }
+
   const latestTranscriptId = transcripts?.[0]?.id ?? null
   const initialTimelineRows: AgendaTimelineRow[] = []
 
   if (latestTranscriptId && agendaIds.length > 0) {
-    const { data: segmentRows } = await supabase
+    const { data: segmentRows, error: segmentsError } = await supabase
       .from('transcript_segments')
       .select('agenda_id, start_offset, end_offset')
       .eq('transcript_id', latestTranscriptId)
       .order('start_offset')
+
+    if (segmentsError) {
+      console.error('[setup/page] Segments query error:', segmentsError)
+    }
 
     const groupedByAgenda = new Map<string, { startSec: number; endSec: number }>()
 
@@ -142,12 +173,13 @@ export default async function MeetingSetupPage({
     (meeting.committees as unknown as { name: string } | null)?.name ?? null
   const orgName =
     (meeting.organizations as unknown as { name: string } | null)?.name ?? ''
+
   let committeeGenerationSettings: Awaited<ReturnType<typeof getCommitteeGenerationSettings>> | null = null
   if (meeting.committee_id) {
     try {
       committeeGenerationSettings = await getCommitteeGenerationSettings(meeting.committee_id)
     } catch (error) {
-      console.error('Failed to load committee generation settings:', error)
+      console.error('[setup/page] getCommitteeGenerationSettings failed:', error)
     }
   }
 
@@ -161,13 +193,16 @@ export default async function MeetingSetupPage({
     try {
       itineraryTemplates = await getItineraryTemplates(meeting.committee_id)
     } catch (error) {
-      console.error('Failed to load itinerary templates:', error)
+      console.error('[setup/page] getItineraryTemplates failed:', error)
       itineraryTemplates = []
     }
   }
 
   const committeeSpeakers = meeting.committee_id
-    ? await getCommitteeSpeakers(meeting.committee_id).catch(() => [])
+    ? await getCommitteeSpeakers(meeting.committee_id).catch((error) => {
+        console.error('[setup/page] getCommitteeSpeakers failed:', error)
+        return []
+      })
     : []
 
   return (

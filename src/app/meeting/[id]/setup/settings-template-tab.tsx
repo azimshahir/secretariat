@@ -90,7 +90,6 @@ export function SettingsTemplateTab({ meetingId, committeeId, groups, onGroupsCh
       router.refresh()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save minute instruction')
-      throw error
     }
   }
 
