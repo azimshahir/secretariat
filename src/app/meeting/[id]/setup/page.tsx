@@ -142,9 +142,14 @@ export default async function MeetingSetupPage({
     (meeting.committees as unknown as { name: string } | null)?.name ?? null
   const orgName =
     (meeting.organizations as unknown as { name: string } | null)?.name ?? ''
-  const committeeGenerationSettings = meeting.committee_id
-    ? await getCommitteeGenerationSettings(meeting.committee_id)
-    : null
+  let committeeGenerationSettings: Awaited<ReturnType<typeof getCommitteeGenerationSettings>> | null = null
+  if (meeting.committee_id) {
+    try {
+      committeeGenerationSettings = await getCommitteeGenerationSettings(meeting.committee_id)
+    } catch (error) {
+      console.error('Failed to load committee generation settings:', error)
+    }
+  }
 
   let itineraryTemplates: Array<{
     section_key: string
