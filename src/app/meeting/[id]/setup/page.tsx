@@ -213,6 +213,29 @@ export default async function MeetingSetupPage({
     agendaRows,
   )
 
+  let initialRagDocuments: Array<{
+    id: string; category: string; documentName: string; fileName: string; createdAt: string
+  }> = []
+  if (meeting.committee_id) {
+    try {
+      const { data: ragDocs } = await supabase
+        .from('committee_rag_documents')
+        .select('id, category, document_name, file_name, created_at')
+        .eq('committee_id', meeting.committee_id)
+        .order('created_at', { ascending: false })
+
+      initialRagDocuments = (ragDocs ?? []).map(row => ({
+        id: row.id,
+        category: row.category,
+        documentName: row.document_name,
+        fileName: row.file_name,
+        createdAt: row.created_at,
+      }))
+    } catch (error) {
+      console.error('[setup/page] RAG documents query failed:', error)
+    }
+  }
+
   return (
     <AppShell
       profile={profile}
@@ -240,6 +263,7 @@ export default async function MeetingSetupPage({
         initialTimelineRows={initialTimelineRows}
         meetingStatus={meeting.status}
         initialMeetingPackConfig={initialMeetingPackConfig}
+        initialRagDocuments={initialRagDocuments}
       />
     </AppShell>
   )

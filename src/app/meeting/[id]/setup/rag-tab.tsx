@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { ChevronDown, ChevronRight, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -53,33 +53,25 @@ function formatDate(value: string) {
 
 interface RagTabProps {
   committeeId: string | null
+  initialDocuments: CommitteeRagDocumentSummary[]
 }
 
-export function RagTab({ committeeId }: RagTabProps) {
+export function RagTab({ committeeId, initialDocuments }: RagTabProps) {
   const [isRagOpen, setIsRagOpen] = useState(true)
   const [documents, setDocuments] = useState<DocumentDraft[]>([createDocumentDraft()])
-  const [uploadedDocuments, setUploadedDocuments] = useState<CommitteeRagDocumentSummary[]>([])
+  const [uploadedDocuments, setUploadedDocuments] = useState<CommitteeRagDocumentSummary[]>(initialDocuments)
   const [isPending, startTransition] = useTransition()
-  const [isLoading, setIsLoading] = useState(false)
   const disabled = !committeeId
 
   async function refreshDocuments() {
     if (!committeeId) return
-    setIsLoading(true)
     try {
       const rows = await listCommitteeRagDocuments(committeeId)
       setUploadedDocuments(rows)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load RAG documents')
-    } finally {
-      setIsLoading(false)
     }
   }
-
-  useEffect(() => {
-    void refreshDocuments()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [committeeId])
 
   function updateDocument(documentId: string, updater: (document: DocumentDraft) => DocumentDraft) {
     setDocuments(prev => prev.map(document => (document.id === documentId ? updater(document) : document)))
@@ -255,12 +247,7 @@ export function RagTab({ committeeId }: RagTabProps) {
 
           <div className="space-y-2">
             <p className="text-sm font-medium">Uploaded documents</p>
-            {isLoading ? (
-              <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-zinc-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading...
-              </div>
-            ) : uploadedDocuments.length === 0 ? (
+            {uploadedDocuments.length === 0 ? (
               <div className="rounded-md border px-3 py-2 text-sm text-zinc-500">
                 No committee RAG documents yet.
               </div>
