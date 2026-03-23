@@ -17,6 +17,25 @@ export default async function MeetingSetupPage({
 }: {
   params: Promise<{ id: string }>
 }) {
+  try {
+    return await renderMeetingSetupPage(params)
+  } catch (error) {
+    if (isRedirectError(error)) throw error
+    const message = error instanceof Error ? error.message : String(error)
+    const stack = error instanceof Error ? error.stack : ''
+    console.error('[setup/page] UNCAUGHT RENDER ERROR:', message, stack)
+    return (
+      <div className="p-10 font-mono text-sm">
+        <h1 className="mb-4 text-lg font-bold text-red-600">Debug: Page render error</h1>
+        <pre className="whitespace-pre-wrap rounded bg-red-50 p-4 text-red-800">{message}</pre>
+        {stack && <pre className="mt-2 whitespace-pre-wrap rounded bg-zinc-50 p-4 text-zinc-600 text-xs">{stack}</pre>}
+        <p className="mt-4 text-zinc-500">This error occurred during server component re-render. Refresh the page to try again.</p>
+      </div>
+    )
+  }
+}
+
+async function renderMeetingSetupPage(params: Promise<{ id: string }>) {
   const { id } = await params
 
   let authedContext: Awaited<ReturnType<typeof requireAuthedAppContext>>
