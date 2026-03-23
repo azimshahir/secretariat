@@ -9,6 +9,7 @@ import { formatSecondsToTimecode } from '@/lib/transcript-timeline'
 import { getCommitteeGenerationSettings } from './committee-generation-actions'
 import type { AgendaTimelineRow } from './agenda-timeline-row'
 import { MeetingDashboard } from './meeting-dashboard'
+import { normalizeMeetingPackConfig } from './meeting-pack-model'
 import type { MinuteEntry } from './minute-entry'
 
 export default async function MeetingSetupPage({
@@ -207,6 +208,11 @@ export default async function MeetingSetupPage({
       })
     : []
 
+  const initialMeetingPackConfig = normalizeMeetingPackConfig(
+    meeting.meeting_pack_config,
+    agendaRows,
+  )
+
   return (
     <AppShell
       profile={profile}
@@ -233,6 +239,7 @@ export default async function MeetingSetupPage({
         currentMinutesByAgenda={currentMinutesByAgenda}
         initialTimelineRows={initialTimelineRows}
         meetingStatus={meeting.status}
+        initialMeetingPackConfig={initialMeetingPackConfig}
       />
     </AppShell>
   )

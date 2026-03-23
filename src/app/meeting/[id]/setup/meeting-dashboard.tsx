@@ -20,6 +20,7 @@ import type { CommitteeSpeaker } from '@/actions/committee-speakers'
 import type { Agenda } from '@/lib/supabase/types'
 import type { MinuteEntry } from './minute-entry'
 import type { AgendaTimelineRow } from './agenda-timeline-row'
+import type { MeetingPackConfig } from './meeting-pack-model'
 import {
   buildAgendaStepAnalytics,
   buildMeetingPackStepAnalytics,
@@ -55,6 +56,7 @@ interface Props {
   currentMinutesByAgenda: Record<string, MinuteEntry>
   initialTimelineRows: AgendaTimelineRow[]
   meetingStatus: string
+  initialMeetingPackConfig: MeetingPackConfig
 }
 
 export function MeetingDashboard({
@@ -65,6 +67,7 @@ export function MeetingDashboard({
   currentMinutesByAgenda,
   initialTimelineRows,
   meetingStatus,
+  initialMeetingPackConfig,
 }: Props) {
   const [templateGroups, setTemplateGroups] = useState<TemplateGroup[]>(() => {
     const groups = createInitialTemplateGroups({
@@ -286,6 +289,7 @@ export function MeetingDashboard({
             existingAgendas={existingAgendas}
             committeeId={committeeId}
             meetingStatus={meetingStatus}
+            initialMeetingPackConfig={initialMeetingPackConfig}
           />
         </TabsContent>
 

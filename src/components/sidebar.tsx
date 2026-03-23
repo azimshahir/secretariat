@@ -41,7 +41,6 @@ function NavItem({ href, label, icon: Icon, active, collapsed }: {
     <motion.div whileHover={{ x: 4 }} transition={{ duration: 0.18 }}>
       <Link
         href={href}
-        prefetch={false}
         title={label}
         className={cn(
           'flex items-center px-2 py-2.5 text-[0.84rem] transition-all duration-200',
@@ -137,7 +136,6 @@ export function Sidebar({
                   <motion.div key={c.id} whileHover={{ x: 4 }} transition={{ duration: 0.18 }}>
                     <Link
                       href={href}
-                      prefetch={false}
                       title={c.name}
                       className={cn(
                         'flex items-center px-2 py-2.5 text-[0.84rem] transition-all duration-200',
@@ -180,7 +178,6 @@ export function Sidebar({
           {profile.role === 'admin' && (
             <Link
               href="/admin"
-              prefetch={false}
               title="Admin control room"
               className={cn(
                 'flex items-center border px-2 py-2 text-[0.82rem] transition-colors',

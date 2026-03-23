@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   Download, FileUp, GripVertical, Plus, RefreshCcw, Trash2,
 } from 'lucide-react'
@@ -16,7 +16,6 @@ import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import type { Agenda } from '@/lib/supabase/types'
 import {
-  getMeetingPackConfig,
   saveMeetingPackConfig,
   uploadMeetingPackPdf,
 } from './meeting-pack-actions'
@@ -32,6 +31,7 @@ interface Props {
   meetingTitle: string
   meetingDate: string
   agendas: Agenda[]
+  initialConfig: MeetingPackConfig
 }
 
 function cloneConfig(config: MeetingPackConfig) {
@@ -106,13 +106,13 @@ function getPdfPath(
   return null
 }
 
-export function MeetingPackBuilder({ meetingId, meetingTitle, meetingDate, agendas }: Props) {
+export function MeetingPackBuilder({ meetingId, meetingTitle, meetingDate, agendas, initialConfig }: Props) {
   const [open, setOpen] = useState(false)
-  const [isLoadingConfig, setIsLoadingConfig] = useState(true)
+  const [isLoadingConfig] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [uploadingField, setUploadingField] = useState<string | null>(null)
-  const [config, setConfig] = useState<MeetingPackConfig | null>(null)
+  const [config, setConfig] = useState<MeetingPackConfig>(initialConfig)
   const [draft, setDraft] = useState<MeetingPackConfig | null>(null)
 
   const dragRef = useRef<number | null>(null)
@@ -122,26 +122,6 @@ export function MeetingPackBuilder({ meetingId, meetingTitle, meetingDate, agend
     () => new Map(agendaSections.map(s => [s.heading.id, s])),
     [agendaSections],
   )
-  const agendaSignature = agendas.map(a => `${a.id}:${a.slide_pages ?? ''}`).join('|')
-
-  useEffect(() => {
-    let cancelled = false
-    async function loadConfig() {
-      setIsLoadingConfig(true)
-      try {
-        const loaded = await getMeetingPackConfig(meetingId)
-        if (cancelled) return
-        setConfig(loaded)
-      } catch (e) {
-        if (cancelled) return
-        toast.error(getSafeMeetingPackError(e, 'Failed to load Meeting Pack config'))
-      } finally {
-        if (!cancelled) setIsLoadingConfig(false)
-      }
-    }
-    void loadConfig()
-    return () => { cancelled = true }
-  }, [meetingId, agendaSignature])
 
   const overrideMap = useMemo(() => {
     if (!draft) return new Map<string, string>()

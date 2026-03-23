@@ -29,6 +29,7 @@ import type { Agenda } from '@/lib/supabase/types'
 import { buildDocxFromTemplate, fetchTemplateBuffer } from './docx-template-engine'
 import { DownloadMomButton } from './download-mom-button'
 import { MeetingPackBuilder } from './meeting-pack-builder'
+import type { MeetingPackConfig } from './meeting-pack-model'
 import type { TemplateGroup, TemplateSection } from './settings-template-model'
 
 type ExportFormat = 'pdf' | 'docx'
@@ -41,6 +42,7 @@ interface Props {
   existingAgendas: Agenda[]
   committeeId: string | null
   meetingStatus: string
+  initialMeetingPackConfig: MeetingPackConfig
 }
 
 function toSafeFileName(name: string) {
@@ -373,6 +375,7 @@ export function ItinerariesTab({
   existingAgendas,
   committeeId,
   meetingStatus,
+  initialMeetingPackConfig,
 }: Props) {
   const sections = useMemo(() => {
     const itineraryGroup = groups.find(group => group.id === 'itineraries')
@@ -494,6 +497,7 @@ export function ItinerariesTab({
         meetingTitle={meetingTitle}
         meetingDate={meetingDate}
         agendas={existingAgendas}
+        initialConfig={initialMeetingPackConfig}
       />
 
       <Card>

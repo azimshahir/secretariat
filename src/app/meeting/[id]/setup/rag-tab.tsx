@@ -77,8 +77,7 @@ export function RagTab({ committeeId }: RagTabProps) {
   }
 
   useEffect(() => {
-    // Temporarily disabled to diagnose production error
-    // void refreshDocuments()
+    void refreshDocuments()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [committeeId])
 
