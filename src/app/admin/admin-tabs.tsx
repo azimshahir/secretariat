@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { LayoutDashboard, Users, BarChart3, Building2, Bot, ScrollText, Inbox } from 'lucide-react'
+import type { AiProvider, AiTask, EffectiveAiConfig } from '@/lib/ai/catalog'
 import { TabOverview } from './tab-overview'
 import { TabUsers } from './tab-users'
 import { TabSubscription } from './tab-subscription'
@@ -11,8 +12,6 @@ import { AiModelSettings } from './ai-model-settings'
 import { TabAuditLogs } from './tab-audit-logs'
 import { TabCustomRequests } from './tab-custom-requests'
 import type { CustomIndustryRequestStatus } from '@/lib/supabase/types'
-
-type AiProvider = 'anthropic' | 'openai' | 'google'
 
 interface AuditEntry { id: string; action: string; created_at: string; user_name: string | null }
 interface AuditLog { id: string; action: string; details: Record<string, unknown>; created_at: string; meeting_title: string | null; user_name: string | null }
@@ -52,8 +51,7 @@ interface Props {
   committees: CommitteeData[]
   categories: string[]
   // ai model
-  aiProvider: AiProvider
-  aiModel: string
+  aiConfigs: Record<AiTask, EffectiveAiConfig>
   aiOptions: Record<AiProvider, string[]>
   // audit
   auditLogs: AuditLog[]
@@ -118,7 +116,7 @@ export function AdminTabs(props: Props) {
         />
       </TabsContent>
       <TabsContent value="ai-model" className="mt-6">
-        <AiModelSettings initialProvider={props.aiProvider} initialModel={props.aiModel} options={props.aiOptions} />
+        <AiModelSettings initialConfigs={props.aiConfigs} options={props.aiOptions} />
       </TabsContent>
       <TabsContent value="audit-logs" className="mt-6">
         <TabAuditLogs logs={props.auditLogs} />

@@ -22,7 +22,7 @@ function formatTimestamp(seconds: number | null): string {
 function buildTranscriptContext(segments: Segment[]) {
   if (segments.length === 0) return 'No transcript segments were assigned for this agenda.'
   return segments
-    .map((seg, i) => {
+    .map(seg => {
       const ts = seg.start_offset != null
         ? `[${formatTimestamp(seg.start_offset)}–${formatTimestamp(seg.end_offset)}]`
         : ''
@@ -260,7 +260,10 @@ RULES:
 
   const model = modelId
     ? resolveModelById(modelId)
-    : await resolveLanguageModelForOrganization(meeting.organization_id)
+    : await resolveLanguageModelForOrganization(
+        meeting.organization_id,
+        mode === 'agent' ? 'go_deeper_agent' : 'go_deeper_ask',
+      )
 
   // Convert UIMessage (parts-based) to simple { role, content } for streamText
   const modelMessages = rawMessages.map(m => {

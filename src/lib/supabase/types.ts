@@ -18,6 +18,14 @@ export interface OrganizationAiSettings {
   organization_id: string
   provider: 'anthropic' | 'openai' | 'google'
   model: string
+  generate_mom_provider: 'anthropic' | 'openai' | 'google' | null
+  generate_mom_model: string | null
+  go_deeper_ask_provider: 'anthropic' | 'openai' | 'google' | null
+  go_deeper_ask_model: string | null
+  go_deeper_agent_provider: 'anthropic' | 'openai' | 'google' | null
+  go_deeper_agent_model: string | null
+  generate_itineraries_provider: 'anthropic' | 'openai' | 'google' | null
+  generate_itineraries_model: string | null
   created_at: string
   updated_at: string
 }

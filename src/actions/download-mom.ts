@@ -118,7 +118,7 @@ ${templateText}
     }
   }
 
-  const model = await resolveLanguageModelForOrganization(meeting.organization_id)
+  const model = await resolveLanguageModelForOrganization(meeting.organization_id, 'generate_mom')
 
   const result = await generateText({
     model,

@@ -1,27 +1,37 @@
 import 'server-only'
 
 import { anthropic } from '@ai-sdk/anthropic'
-import { openai } from '@ai-sdk/openai'
 import { google } from '@ai-sdk/google'
+import { openai } from '@ai-sdk/openai'
+import {
+  AI_PROVIDER_MODELS,
+  AI_TASKS,
+  inferProviderFromModel,
+  type AiProvider,
+  type AiTask,
+  type EffectiveAiConfig,
+  toProvider,
+} from '@/lib/ai/catalog'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-export type AiProvider = 'anthropic' | 'openai' | 'google'
+interface OrganizationAiSettingsRow {
+  provider: string | null
+  model: string | null
+  generate_mom_provider: string | null
+  generate_mom_model: string | null
+  go_deeper_ask_provider: string | null
+  go_deeper_ask_model: string | null
+  go_deeper_agent_provider: string | null
+  go_deeper_agent_model: string | null
+  generate_itineraries_provider: string | null
+  generate_itineraries_model: string | null
+}
 
-export const AI_PROVIDER_MODELS: Record<AiProvider, string[]> = {
-  anthropic: [
-    'claude-sonnet-4-5-20250929',
-    'claude-opus-4-6',
-  ],
-  openai: [
-    'gpt-5',
-    'gpt-5-mini',
-    'gpt-5-nano',
-    'gpt-4.1',
-  ],
-  google: [
-    'gemini-2.5-pro',
-    'gemini-2.5-flash',
-  ],
+function isMissingAiTaskSettingsColumn(error: { code?: string | null; message?: string | null } | null | undefined) {
+  if (!error) return false
+  if (error.code === 'PGRST204') return true
+  const message = (error.message ?? '').toLowerCase()
+  return message.includes('organization_ai_settings') && message.includes('schema cache')
 }
 
 const ENV_DEFAULTS: Record<AiProvider, string> = {
@@ -30,28 +40,26 @@ const ENV_DEFAULTS: Record<AiProvider, string> = {
   google: 'gemini-2.5-pro',
 }
 
-export interface EffectiveAiConfig {
-  provider: AiProvider
-  model: string
-}
-
-function isAiProvider(value: string): value is AiProvider {
-  return value === 'anthropic' || value === 'openai' || value === 'google'
-}
-
-function toProvider(value: string | null | undefined): AiProvider | null {
-  if (!value) return null
-  const normalized = value.trim().toLowerCase()
-  return isAiProvider(normalized) ? normalized : null
-}
-
-function inferProviderFromModel(model: string): AiProvider | null {
-  const value = model.trim().toLowerCase()
-  if (!value) return null
-  if (value.startsWith('claude')) return 'anthropic'
-  if (value.startsWith('gpt')) return 'openai'
-  if (value.startsWith('gemini')) return 'google'
-  return null
+const AI_TASK_FIELD_MAP: Record<AiTask, {
+  provider: keyof OrganizationAiSettingsRow
+  model: keyof OrganizationAiSettingsRow
+}> = {
+  generate_mom: {
+    provider: 'generate_mom_provider',
+    model: 'generate_mom_model',
+  },
+  go_deeper_ask: {
+    provider: 'go_deeper_ask_provider',
+    model: 'go_deeper_ask_model',
+  },
+  go_deeper_agent: {
+    provider: 'go_deeper_agent_provider',
+    model: 'go_deeper_agent_model',
+  },
+  generate_itineraries: {
+    provider: 'generate_itineraries_provider',
+    model: 'generate_itineraries_model',
+  },
 }
 
 function getEnvDefaultConfig(): EffectiveAiConfig {
@@ -79,31 +87,104 @@ function assertProviderKey(provider: AiProvider) {
   }
 }
 
-export async function getEffectiveAiConfigForOrganization(
+function toTaskConfig(
+  row: OrganizationAiSettingsRow | null | undefined,
+  task: AiTask,
+  fallback: EffectiveAiConfig,
+): EffectiveAiConfig {
+  if (!row) return fallback
+
+  const taskFields = AI_TASK_FIELD_MAP[task]
+  const taskProvider = toProvider(String(row[taskFields.provider] ?? ''))
+  const taskModel = String(row[taskFields.model] ?? '').trim()
+
+  if (taskProvider && taskModel) {
+    return { provider: taskProvider, model: taskModel }
+  }
+
+  const legacyProvider = toProvider(row.provider)
+  const legacyModel = String(row.model ?? '').trim()
+  if (legacyProvider && legacyModel) {
+    return { provider: legacyProvider, model: legacyModel }
+  }
+
+  return fallback
+}
+
+async function getOrganizationAiSettingsRow(
   organizationId: string | null | undefined,
-): Promise<EffectiveAiConfig> {
-  const fallback = getEnvDefaultConfig()
-  if (!organizationId) return fallback
+): Promise<OrganizationAiSettingsRow | null> {
+  if (!organizationId) return null
 
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('organization_ai_settings')
-    .select('provider, model')
+    .select(`
+      provider,
+      model,
+      generate_mom_provider,
+      generate_mom_model,
+      go_deeper_ask_provider,
+      go_deeper_ask_model,
+      go_deeper_agent_provider,
+      go_deeper_agent_model,
+      generate_itineraries_provider,
+      generate_itineraries_model
+    `)
     .eq('organization_id', organizationId)
     .maybeSingle()
 
-  if (error || !data) return fallback
+  if (error && isMissingAiTaskSettingsColumn(error)) {
+    const fallback = await admin
+      .from('organization_ai_settings')
+      .select('provider, model')
+      .eq('organization_id', organizationId)
+      .maybeSingle()
 
-  const provider = toProvider(data.provider)
-  const model = String(data.model ?? '').trim()
-  if (!provider || !model) return fallback
-  return { provider, model }
+    if (fallback.error || !fallback.data) return null
+    return {
+      provider: fallback.data.provider,
+      model: fallback.data.model,
+      generate_mom_provider: null,
+      generate_mom_model: null,
+      go_deeper_ask_provider: null,
+      go_deeper_ask_model: null,
+      go_deeper_agent_provider: null,
+      go_deeper_agent_model: null,
+      generate_itineraries_provider: null,
+      generate_itineraries_model: null,
+    }
+  }
+
+  if (error || !data) return null
+  return data as OrganizationAiSettingsRow
+}
+
+export async function getEffectiveAiConfigsForOrganization(
+  organizationId: string | null | undefined,
+): Promise<Record<AiTask, EffectiveAiConfig>> {
+  const fallback = getEnvDefaultConfig()
+  const row = await getOrganizationAiSettingsRow(organizationId)
+
+  return AI_TASKS.reduce((configs, task) => {
+    configs[task] = toTaskConfig(row, task, fallback)
+    return configs
+  }, {} as Record<AiTask, EffectiveAiConfig>)
+}
+
+export async function getEffectiveAiConfigForOrganization(
+  organizationId: string | null | undefined,
+  task: AiTask = 'generate_mom',
+): Promise<EffectiveAiConfig> {
+  const configs = await getEffectiveAiConfigsForOrganization(organizationId)
+  return configs[task]
 }
 
 export async function resolveLanguageModelForOrganization(
   organizationId: string | null | undefined,
+  task: AiTask = 'generate_mom',
 ) {
-  const config = await getEffectiveAiConfigForOrganization(organizationId)
+  const config = await getEffectiveAiConfigForOrganization(organizationId, task)
   assertProviderKey(config.provider)
 
   if (config.provider === 'anthropic') return anthropic(config.model)
@@ -120,6 +201,12 @@ export function resolveModelById(modelId: string) {
   return google(modelId)
 }
 
-export function isSupportedProviderModel(provider: AiProvider, model: string) {
-  return AI_PROVIDER_MODELS[provider].includes(model)
+export {
+  AI_PROVIDER_MODELS,
+}
+
+export type {
+  AiProvider,
+  AiTask,
+  EffectiveAiConfig,
 }

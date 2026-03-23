@@ -318,7 +318,7 @@ export async function generateMinutesForAgenda(
     ? agenda.slide_pages.trim()
     : null
 
-  const model = await resolveLanguageModelForOrganization(meeting.organization_id)
+  const model = await resolveLanguageModelForOrganization(meeting.organization_id, 'generate_mom')
   const transcriptChunks = segments.map(s =>
     s.speaker ? `${s.speaker}: ${s.content}` : s.content
   )

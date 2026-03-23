@@ -109,7 +109,7 @@ export async function generateItineraryContent(
   const prompt = buildPrompt(sectionType, templateRef, meeting.title, formattedDate, agendaJson, minuteBlock, sectionPrompt)
   const sectionPersona = ITINERARY_PERSONAS[sectionType]
   const committeePersona = committee?.persona_prompt || getDefaultPersona(committee?.slug ?? 'board')
-  const model = await resolveLanguageModelForOrganization(meeting.organization_id)
+  const model = await resolveLanguageModelForOrganization(meeting.organization_id, 'generate_itineraries')
   const result = await generateText({ model, system: `${sectionPersona}\n\n${committeePersona}`, prompt })
 
   return { ...parseJson(result.text, sectionType), templateUrl, meetingTitle: meeting.title, formattedDate }
