@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { isRedirectError } from 'next/dist/client/components/redirect-error'
 
 import { getCommitteeSpeakers } from '@/actions/committee-speakers'
 import { getItineraryTemplates } from '@/actions/itinerary-template'
@@ -21,8 +22,9 @@ export default async function MeetingSetupPage({
   try {
     authedContext = await requireAuthedAppContext()
   } catch (error) {
+    if (isRedirectError(error)) throw error
     console.error('[setup/page] requireAuthedAppContext failed:', error)
-    throw error // re-throw redirects
+    redirect('/')
   }
 
   const { supabase, profile, committees, activeSecretariats } = authedContext
