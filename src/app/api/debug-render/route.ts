@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminSB } from '@supabase/supabase-js'
 import { formatSecondsToTimecode } from '@/lib/timecode'
 import { normalizeMeetingPackConfig } from '@/app/meeting/[id]/setup/meeting-pack-model'
 import { getCommitteeGenerationSettings } from '@/app/meeting/[id]/setup/committee-generation-actions'
@@ -158,5 +159,27 @@ export async function GET() {
     const message = error instanceof Error ? error.message : String(error)
     const stack = error instanceof Error ? error.stack : undefined
     return NextResponse.json({ steps, errors, crash: { message, stack } }, { status: 500 })
+  }
+}
+
+export async function POST(request: NextRequest) {
+  // Read RSC render errors from audit_logs
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) return NextResponse.json({ error: 'no admin creds' })
+
+    const sb = createAdminSB(url, key)
+    const { data, error } = await sb
+      .from('audit_logs')
+      .select('action, details, created_at')
+      .eq('action', 'rsc_render_error')
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    if (error) return NextResponse.json({ error: error.message })
+    return NextResponse.json({ rscErrors: data })
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) })
   }
 }
