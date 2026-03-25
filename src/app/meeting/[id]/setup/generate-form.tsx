@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Dropzone } from '@/components/dropzone'
 
-const COMMON_LANGUAGES = ['English', 'Bahasa Melayu', 'Mandarin', 'Tamil', 'Bilingual (EN/BM)'] as const
+const COMMON_LANGUAGES = ['English', 'Malay', 'Mandarin', 'Tamil', 'Bilingual (English/Malay)'] as const
 
 export interface GenerateConfig {
   recordingFile: File | null

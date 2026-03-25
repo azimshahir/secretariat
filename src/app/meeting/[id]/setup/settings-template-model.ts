@@ -24,17 +24,17 @@ interface InitialTemplateGroupOptions {
 
 const DEFAULT_PROMPTS = {
   agenda:
-    'Gunakan agenda terdahulu sebagai baseline format. Kemas kini item baharu, susunan nombor agenda, tajuk mesyuarat, tarikh, dan metadata semasa tanpa menukar gaya dokumen sekretariat.',
+    'Use the previous agenda as the baseline format. Update the new items, agenda numbering order, meeting title, date, and current metadata without changing the secretariat document style.',
   presenterList:
-    'Rujuk format Presenter List lama dan hasilkan senarai presenter baharu mengikut agenda semasa. Kekalkan struktur/lajur asal dan tandakan item belum lengkap sebagai TBC.',
+    'Refer to the previous Presenter List format and generate a new presenter list based on the current agenda. Keep the original structure/columns and mark incomplete items as TBC.',
   summaryOfDecision:
-    'Sediakan Matter Arising for all berdasarkan format terdahulu. Setiap agenda perlu ada keputusan utama, action item, PIC, due date, dan status dalam gaya formal sekretariat.',
+    'Prepare the Matter Arising for all items based on the previous format. Each agenda should include the key decision, action item, PIC, due date, and status in a formal secretariat style.',
   minuteOfMeeting:
-    'Gunakan format Minute of Meeting terdahulu sebagai template utama. Pastikan struktur Noted/Discussed/Action Items konsisten, bahasa formal, dan mudah diaudit.',
+    'Use the previous Minute of Meeting format as the primary template. Keep the Noted/Discussed/Action Items structure consistent, maintain formal language, and ensure the output is easy to audit.',
   extractMinute:
-    'Ekstrak minit akhir daripada kandungan mesyuarat semasa mengikut format yang dilampirkan. Fokus pada ketepatan keputusan, arahan, PIC, dan due date.',
+    'Extract the final minutes from the current meeting content using the attached format. Focus on the accuracy of decisions, instructions, PIC, and due dates.',
   other:
-    'Gunakan dokumen lampiran sebagai rujukan format untuk seksyen ini dan kekalkan standard penulisan sekretariat.',
+    'Use the attached document as the format reference for this section and keep the secretariat writing standard consistent.',
 }
 
 export function createTemplateSection(title: string, prompt: string, isCustom = false): TemplateSection {

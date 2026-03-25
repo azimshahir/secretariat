@@ -65,19 +65,19 @@ const STEPS: Array<{
   {
     id: 'agenda',
     title: 'Edit Agenda',
-    description: 'Semak struktur agenda dan tajuk-tajuk yang telah dimasukkan.',
+    description: 'Review the agenda structure and the titles that have already been entered.',
     icon: ClipboardList,
   },
   {
     id: 'meeting-pack',
     title: 'Generate Meeting Pack',
-    description: 'Semak lampiran PDF untuk build meeting pack sebelum compile.',
+    description: 'Review the attached PDFs before building the meeting pack.',
     icon: FileBox,
   },
   {
     id: 'recording',
     title: 'Meeting Recording / Analysis',
-    description: 'Attach transcript atau recording, kemudian teruskan workflow analysis dan generation.',
+    description: 'Attach the transcript or recording, then continue with analysis and generation.',
     icon: Sparkles,
   },
 ] as const
@@ -284,7 +284,7 @@ function AgendaStepPanel({
           <div>
             <h3 className="text-2xl font-semibold tracking-tight text-zinc-950">Edit Agenda</h3>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-              Dashboard ini tunjuk berapa agenda header yang sudah dibina dan berapa title/subitem yang telah dimasukkan setakat ini.
+              This dashboard shows how many agenda headers have been created and how many titles/subitems have been entered so far.
             </p>
           </div>
         </div>
@@ -301,17 +301,17 @@ function AgendaStepPanel({
         <SummaryMetric label="Headers With Titles" value={analytics.headersWithTitles} />
       </div>
 
-      <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h4 className="text-sm font-semibold text-zinc-950">Agenda breakdown</h4>
-            <p className="mt-1 text-sm text-zinc-500">Bilangan title di bawah setiap agenda header.</p>
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-semibold text-zinc-950">Agenda breakdown</h4>
+              <p className="mt-1 text-sm text-zinc-500">Number of titles under each agenda header.</p>
+            </div>
           </div>
-        </div>
 
         {analytics.sections.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-white px-4 py-6 text-sm text-zinc-500">
-            Belum ada agenda structure lagi. Buka tab Agenda untuk mula isi header dan titles.
+            No agenda structure has been created yet. Open the Agenda tab to start adding headers and titles.
           </div>
         ) : (
           <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -345,7 +345,7 @@ function MeetingPackStepPanel({
           <div>
             <h3 className="text-2xl font-semibold tracking-tight text-zinc-950">Generate Meeting Pack</h3>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-              Semak coverage lampiran PDF semasa daripada agenda anda sebelum pergi ke builder meeting pack.
+              Review the current PDF attachment coverage from your agendas before opening the meeting pack builder.
             </p>
           </div>
         </div>
@@ -365,16 +365,16 @@ function MeetingPackStepPanel({
       <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
         <h4 className="text-sm font-semibold text-zinc-950">Missing attachments</h4>
         <p className="mt-1 text-sm text-zinc-500">
-          Berdasarkan agenda rows semasa. Builder meeting pack sebenar masih berada dalam tab Itineraries.
+          Based on the current agenda rows. The full meeting pack builder is still available under the Itineraries tab.
         </p>
 
         {analytics.totalRows === 0 ? (
           <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-white px-4 py-6 text-sm text-zinc-500">
-            Belum ada agenda rows lagi, jadi belum ada attachment yang boleh disemak.
+            There are no agenda rows yet, so there are no attachments to review.
           </div>
         ) : analytics.missingItems.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-6 text-sm text-emerald-700">
-            Semua agenda rows sudah ada lampiran PDF atau telah ditanda sebagai “No PDF”.
+            All agenda rows already have a PDF attachment or have been marked as &quot;No PDF&quot;.
           </div>
         ) : (
           <div className="mt-4 space-y-3">
@@ -435,7 +435,7 @@ function RecordingStepPanel({
           <div>
             <h3 className="text-2xl font-semibold tracking-tight text-zinc-950">Meeting Recording / Analysis</h3>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
-              Attach transcript atau recording, semak timeline analysis, kemudian jalankan generation flow seperti biasa.
+              Attach the transcript or recording, review the timeline analysis, then run the generation flow as usual.
             </p>
           </div>
         </div>
@@ -536,10 +536,10 @@ function RecordingStepPanel({
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Step 3</p>
           <h4 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950">MoM dashboard locked until generation starts</h4>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-zinc-500">
-            Dashboard di bawah Step 3 hanya akan muncul selepas MoM sudah dijana. Kalau anda mahu run semula, boleh regenerate pada tab
+            The dashboard under Step 3 will only appear after the MoM has been generated. If you want to run it again, you can regenerate it from the
             {' '}
             <span className="font-medium text-zinc-700">Generate MoM</span>
-            .
+            {' '}tab.
           </p>
         </section>
       )}

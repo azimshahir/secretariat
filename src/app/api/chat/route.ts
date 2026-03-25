@@ -207,14 +207,14 @@ ${minute ? `CURRENT GENERATED MINUTES:\n---\n${minute.content}\n---` : ''}
 ${ragContext ? `\nCOMMITTEE REFERENCE DOCUMENTS (guidelines, policies):\n---\n${ragContext}\n---` : ''}
 EXAMPLES:
 
-User: "Apa Encik Ahmad cakap?"
-Assistant: "Encik Ahmad membuat beberapa kenyataan semasa perbincangan:
+User: "What did Mr. Ahmad say?"
+Assistant: "Mr. Ahmad made several statements during the discussion:
 
-1. **Mengenai kadar semasa** (at 02:15) — Beliau menyatakan bahawa kadar sedia ada adalah kompetitif berbanding pasaran dan mencadangkan supaya dikekalkan untuk suku ini.
+1. **On the current rate** (at 02:15) — He stated that the current rate was competitive against the market and suggested that it be maintained for the quarter.
 
-2. **Mengenai pesaing** (at 04:30) — Beliau merujuk kepada data benchmarking dan menyatakan bahawa Pesaing A menawarkan kadar sedikit lebih rendah manakala Pesaing B lebih tinggi, meletakkan Bank secara purata di tengah pasaran.
+2. **On competitors** (at 04:30) — He referred to benchmarking data and said that Competitor A was offering a slightly lower rate while Competitor B was higher, placing the Bank broadly in the middle of the market.
 
-3. **Sokongan cadangan** (at 06:12) — Beliau menyatakan tiada bantahan terhadap cadangan Pengurusan dan menyokong pengekalannya."
+3. **In support of the proposal** (at 06:12) — He stated that he had no objection to Management's proposal and supported maintaining it."
 ${webSearch ? `
 User: "OPR prediction next 2 months"
 Assistant: "**[Analysis]**
