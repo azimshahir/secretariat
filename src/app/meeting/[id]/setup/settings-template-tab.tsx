@@ -1,7 +1,6 @@
 'use client'
 
 import { type Dispatch, type SetStateAction, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -26,7 +25,6 @@ interface Props {
 
 export function SettingsTemplateTab({ meetingId, committeeId, groups, onGroupsChange }: Props) {
   const [isTemplateOpen, setIsTemplateOpen] = useState(true)
-  const router = useRouter()
   const setGroups = onGroupsChange
 
   function updateGroup(groupId: string, updater: (group: TemplateGroup) => TemplateGroup) {
@@ -88,7 +86,6 @@ export function SettingsTemplateTab({ meetingId, committeeId, groups, onGroupsCh
     try {
       await saveCommitteeMinuteInstruction(committeeId, payload.prompt)
       toast.success('Minute of Meeting instruction saved')
-      router.refresh()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save minute instruction')
     }
@@ -135,7 +132,6 @@ export function SettingsTemplateTab({ meetingId, committeeId, groups, onGroupsCh
       if (result.warnings.length > 0) {
         toast.info(result.warnings.slice(0, 2).join(' | '))
       }
-      router.refresh()
       return
     }
 
@@ -147,7 +143,6 @@ export function SettingsTemplateTab({ meetingId, committeeId, groups, onGroupsCh
     if (result.warnings.length > 0) {
       toast.info(result.warnings.slice(0, 2).join(' | '))
     }
-    router.refresh()
   }
 
   return (
