@@ -150,9 +150,27 @@ export async function GET() {
     const serialized = JSON.stringify(testPayload)
     steps.push(`15b. serialization OK: ${serialized.length} chars`)
 
+    // Also read captured RSC errors from audit_logs
+    let rscErrors: unknown[] = []
+    try {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+      if (url && key) {
+        const adminSB = createAdminSB(url, key)
+        const { data } = await adminSB
+          .from('audit_logs')
+          .select('details, created_at')
+          .eq('action', 'rsc_render_error')
+          .order('created_at', { ascending: false })
+          .limit(10)
+        rscErrors = data ?? []
+      }
+    } catch { /* ignore */ }
+
     return NextResponse.json({
       steps,
       errors,
+      rscErrors,
       result: errors.length === 0 ? 'ALL OK' : 'ERRORS FOUND',
     })
   } catch (error) {
