@@ -324,12 +324,10 @@ export function DraftMomProgressDialog({
 
     setIsImporting(true)
     try {
-      const imported = await onImportDraftBatch()
-      if (imported) {
-        onOpenChange(false)
-      }
+      await onImportDraftBatch()
     } finally {
       setIsImporting(false)
+      onOpenChange(false)
     }
   }
 

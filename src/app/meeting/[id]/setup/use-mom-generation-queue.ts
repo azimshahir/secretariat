@@ -366,15 +366,20 @@ export function useMomGenerationQueue(
       return false
     }
 
-    const result = await importMomDraftBatchRequest(
-      agendas[0]?.meeting_id ?? state.activeBatch.meetingId,
-      state.activeBatch.id,
-    )
+    try {
+      const result = await importMomDraftBatchRequest(
+        agendas[0]?.meeting_id ?? state.activeBatch.meetingId,
+        state.activeBatch.id,
+      )
 
-    setState(EMPTY_STATE)
-    router.refresh()
-    toast.success(`Imported ${result.importedCount} draft MoM ${result.importedCount === 1 ? 'agenda' : 'agendas'}`)
-    return true
+      setState(EMPTY_STATE)
+      router.refresh()
+      toast.success(`Imported ${result.importedCount} draft MoM ${result.importedCount === 1 ? 'agenda' : 'agendas'}`)
+      return true
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to import MoM drafts')
+      return false
+    }
   }
 
   async function runQueue(runAgendas: Agenda[], generationConfig: GenerationConfig, batchId: string) {
