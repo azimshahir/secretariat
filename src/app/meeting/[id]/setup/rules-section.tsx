@@ -174,6 +174,7 @@ export function RulesSection({
           await saveCommitteeMinuteInstructionRequest(committeeId!, serialized)
         }
         setRules(parseInstructionToRows(serialized))
+        setOpenRuleIndexes(new Set())
         toast.success(isMeetingMode ? 'Saved this meeting-only rule override' : 'Committee rules saved')
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to save rules')
