@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, Sparkles, ChevronDown, X, Plus } from 'lucide-react'
+import { Loader2, Sparkles, ChevronDown, X, Plus, RefreshCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -29,24 +29,36 @@ export interface GenerateConfig {
 
 interface GenerateFormProps {
   onGenerate: (config: GenerateConfig) => void
+  onAnalyzeTranscript?: (config: GenerateConfig) => void
+  onRegenerateTranscript?: (config: GenerateConfig) => void
   isPending: boolean
   initialMeetingRules?: string
+  hasSavedTimeline?: boolean
+  preferTeamsTranscription?: boolean
+  savedTimelineAction?: 'generate' | 'reanalyze'
   isGenerateDisabled?: boolean
   generateDisabledReason?: string
+  primaryActionMode?: 'generate' | 'analyze'
 }
 
 export function GenerateForm({
   onGenerate,
+  onAnalyzeTranscript,
+  onRegenerateTranscript,
   isPending,
   initialMeetingRules = '',
+  hasSavedTimeline = false,
+  preferTeamsTranscription = false,
+  savedTimelineAction = 'generate',
   isGenerateDisabled = false,
   generateDisabledReason,
+  primaryActionMode = 'generate',
 }: GenerateFormProps) {
   const [recordingFile, setRecordingFile] = useState<File | null>(null)
   const [transcriptFile, setTranscriptFile] = useState<File | null>(null)
   const [languages, setLanguages] = useState<string[]>(['English'])
   const [customLang, setCustomLang] = useState('')
-  const [useTeamsTranscription, setUseTeamsTranscription] = useState(false)
+  const [useTeamsTranscription, setUseTeamsTranscription] = useState(preferTeamsTranscription)
   const [speakerMatchMethod, setSpeakerMatchMethod] = useState<GenerateConfig['speakerMatchMethod']>('teams_transcript')
   const [agendaDeviationPrompt, setAgendaDeviationPrompt] = useState('')
   const [meetingRulesPrompt, setMeetingRulesPrompt] = useState(initialMeetingRules)
@@ -56,6 +68,10 @@ export function GenerateForm({
   useEffect(() => {
     setMeetingRulesPrompt(initialMeetingRules)
   }, [initialMeetingRules])
+
+  useEffect(() => {
+    setUseTeamsTranscription(preferTeamsTranscription)
+  }, [preferTeamsTranscription])
 
   function toggleLang(lang: string) {
     setLanguages(prev => prev.includes(lang) ? prev.filter(l => l !== lang) : [...prev, lang])
@@ -69,16 +85,44 @@ export function GenerateForm({
     }
   }
 
-  function handleGenerate() {
-    onGenerate({
+  function buildConfig(): GenerateConfig {
+    return {
       recordingFile, transcriptFile, languages, useTeamsTranscription,
       speakerMatchMethod,
       agendaDeviationPrompt,
       meetingRulesPrompt,
       highlightPrompt: meetingRulesPrompt,
       excludeDeckPoints,
+    }
+  }
+
+  function handleGenerate() {
+    onGenerate(buildConfig())
+  }
+
+  function handleAnalyzeTranscript() {
+    onAnalyzeTranscript?.({
+      ...buildConfig(),
+      useTeamsTranscription: true,
+      speakerMatchMethod: 'teams_transcript',
     })
   }
+
+  function handleRegenerateTranscript() {
+    onRegenerateTranscript?.({
+      ...buildConfig(),
+      useTeamsTranscription: true,
+      speakerMatchMethod: 'teams_transcript',
+    })
+  }
+
+  const primaryActionLabel = primaryActionMode === 'analyze'
+    ? 'Analyze Transcript'
+    : 'Generate Draft MoM'
+
+  const showAnalyzeTranscriptAction = primaryActionMode === 'generate'
+  const showRegenerateTranscriptAction = hasSavedTimeline && primaryActionMode === 'generate'
+  const isPrimaryGenerateAction = primaryActionMode === 'generate'
 
   return (
     <div className="space-y-6">
@@ -147,12 +191,23 @@ export function GenerateForm({
           />
         </div>
         {useTeamsTranscription && (
-          <Dropzone
-            accept=".docx,.vtt"
-            label="Attach the transcript file"
-            hint="DOCX or VTT from Microsoft Teams"
-            onFile={async (file) => { setTranscriptFile(file) }}
-          />
+          <div className="space-y-2">
+            {hasSavedTimeline && !transcriptFile ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+                {savedTimelineAction === 'generate'
+                  ? 'Saved transcript mapping found. You can generate directly without reattaching, analyze the transcript again, or regenerate the timeline from the saved transcript.'
+                  : 'Saved transcript mapping found. Analyze the transcript to rebuild and edit the timeline before generating draft minutes.'}
+              </div>
+            ) : null}
+            <Dropzone
+              accept=".docx,.vtt"
+              label="Attach the transcript file"
+              hint="DOCX or VTT from Microsoft Teams"
+              completeHint="File selected. Ready to analyze."
+              completeVariant="selected"
+              onFile={async (file) => { setTranscriptFile(file) }}
+            />
+          </div>
         )}
       </div>
 
@@ -178,6 +233,8 @@ export function GenerateForm({
                   accept=".docx,.vtt"
                   label="Attach the transcript file"
                   hint="DOCX or VTT from Microsoft Teams"
+                  completeHint="File selected. Ready to generate."
+                  completeVariant="selected"
                   onFile={async (file) => { setTranscriptFile(file) }}
                 />
               </div>
@@ -217,13 +274,16 @@ export function GenerateForm({
       {/* 6. Meeting Rules */}
       <div className="space-y-2">
         <Label htmlFor="meeting-rules" className="text-sm font-medium">
-          Meeting rules for Secretariat (applied during Analyze and Generate)
+          Meeting Rules for this meeting only
         </Label>
+        <p className="text-xs text-zinc-500">
+          Temporary overrides for wording, role naming, and meeting-specific instructions. Exact formatting still comes from the saved template or playbook, and conflicting structural rules will block exact-template generation.
+        </p>
         <Textarea
           id="meeting-rules"
           value={meetingRulesPrompt}
           onChange={(e) => setMeetingRulesPrompt(e.target.value)}
-          placeholder='e.g. Use "Head, TD" instead of "The Section Head of TD". Use Islamic finance terms; avoid "Loan" and "Interest".'
+          placeholder='e.g. Use "Head, TD" instead of names. Use Islamic finance terms. For this meeting, keep the minute in the 5-part ALM style if no exact template is attached.'
           rows={3}
           maxLength={2000}
           className="resize-y"
@@ -250,12 +310,46 @@ export function GenerateForm({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Generate Button */}
-      <Button onClick={handleGenerate} disabled={isPending || isGenerateDisabled} className="w-full gap-2">
-        {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-        {useTeamsTranscription ? 'Analyze Transcript' : 'Generate'}
-      </Button>
-      {isGenerateDisabled && generateDisabledReason ? (
+      {/* Action Buttons */}
+      <div className="space-y-2">
+        {showAnalyzeTranscriptAction || showRegenerateTranscriptAction ? (
+          <div className={`grid gap-2 ${showAnalyzeTranscriptAction && showRegenerateTranscriptAction ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
+            {showAnalyzeTranscriptAction ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleAnalyzeTranscript}
+                disabled={isPending || !onAnalyzeTranscript}
+                className="w-full gap-2"
+              >
+                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Analyze Transcript
+              </Button>
+            ) : null}
+            {showRegenerateTranscriptAction ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleRegenerateTranscript}
+                disabled={isPending || !onRegenerateTranscript}
+                className="w-full gap-2"
+              >
+                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                Regenerate Transcript
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        <Button
+          onClick={isPrimaryGenerateAction ? handleGenerate : handleAnalyzeTranscript}
+          disabled={isPending || (isPrimaryGenerateAction && isGenerateDisabled)}
+          className="w-full gap-2"
+        >
+          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {primaryActionLabel}
+        </Button>
+      </div>
+      {isPrimaryGenerateAction && isGenerateDisabled && generateDisabledReason ? (
         <p className="text-xs text-amber-700 dark:text-amber-300">{generateDisabledReason}</p>
       ) : null}
     </div>

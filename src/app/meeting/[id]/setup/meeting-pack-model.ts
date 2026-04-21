@@ -7,6 +7,7 @@ export type TopLevelBlockId = FixedBlockId | `section:${string}` | `custom:${str
 export interface MeetingPackConfig {
   version: 1
   topLevelOrder: TopLevelBlockId[]
+  excludedTopLevelBlockIds: string[]
   fixedSections: {
     front_page: { pdfPath: string | null }
     confidentiality: { pdfPath: string | null }
@@ -21,6 +22,8 @@ export interface MeetingPackConfig {
     agendaId: string
     pdfPath: string
   }>
+  excludedAgendaIds: string[]
+  includeBookmarks: boolean
   includeSectionDividerPages: boolean
   includeSubsectionDividerPages: boolean
   sectionDividerPdfPath: string | null
@@ -68,6 +71,7 @@ export function createDefaultMeetingPackConfig(agendas: Agenda[]): MeetingPackCo
   return {
     version: 1,
     topLevelOrder: buildDefaultTopLevelOrder(agendas, []),
+    excludedTopLevelBlockIds: [],
     fixedSections: {
       front_page: { pdfPath: null },
       confidentiality: { pdfPath: null },
@@ -75,6 +79,8 @@ export function createDefaultMeetingPackConfig(agendas: Agenda[]): MeetingPackCo
     },
     customSections: [],
     agendaPdfOverrides: [],
+    excludedAgendaIds: [],
+    includeBookmarks: false,
     includeSectionDividerPages: false,
     includeSubsectionDividerPages: false,
     sectionDividerPdfPath: null,
@@ -137,6 +143,12 @@ export function normalizeMeetingPackConfig(raw: unknown, agendas: Agenda[]): Mee
   const allowedSectionBlockIds = new Set(sectionBlockIds)
 
   const rawTopLevelOrder = Array.isArray(source.topLevelOrder) ? source.topLevelOrder : []
+  const excludedTopLevelBlockIds = Array.isArray(source.excludedTopLevelBlockIds)
+    ? source.excludedTopLevelBlockIds
+        .map(value => toNonEmptyString(value))
+        .filter((value): value is string => Boolean(value))
+    : []
+  const excludedTopLevelBlockSet = new Set(excludedTopLevelBlockIds)
   const normalizedTopLevelOrder: TopLevelBlockId[] = []
   const seen = new Set<string>()
 
@@ -146,7 +158,7 @@ export function normalizeMeetingPackConfig(raw: unknown, agendas: Agenda[]): Mee
     // Backward compat: expand old 'agenda' block into individual section:* entries
     if ((value as string) === 'agenda') {
       sectionBlockIds.forEach(sectionBlock => {
-        if (!seen.has(sectionBlock)) {
+        if (!seen.has(sectionBlock) && !excludedTopLevelBlockSet.has(sectionBlock)) {
           seen.add(sectionBlock)
           normalizedTopLevelOrder.push(sectionBlock)
         }
@@ -167,7 +179,7 @@ export function normalizeMeetingPackConfig(raw: unknown, agendas: Agenda[]): Mee
   // Append any missing blocks from the default order
   const fallbackOrder = buildDefaultTopLevelOrder(agendas, customSections)
   fallbackOrder.forEach(block => {
-    if (!seen.has(block)) {
+    if (!seen.has(block) && !excludedTopLevelBlockSet.has(block)) {
       seen.add(block)
       normalizedTopLevelOrder.push(block)
     }
@@ -196,9 +208,16 @@ export function normalizeMeetingPackConfig(raw: unknown, agendas: Agenda[]): Mee
     agendaOverrideMap.set(agendaId, pdfPath)
   })
 
+  const excludedAgendaIds = Array.isArray(source.excludedAgendaIds)
+    ? source.excludedAgendaIds
+        .map(value => toNonEmptyString(value))
+        .filter((value): value is string => Boolean(value && agendaIdSet.has(value)))
+    : []
+
   return {
     version: 1,
     topLevelOrder: cleanedOrder,
+    excludedTopLevelBlockIds,
     fixedSections: {
       front_page: {
         pdfPath: toNullablePath((fixedSource.front_page as Record<string, unknown> | undefined)?.pdfPath)
@@ -215,6 +234,10 @@ export function normalizeMeetingPackConfig(raw: unknown, agendas: Agenda[]): Mee
     },
     customSections,
     agendaPdfOverrides: Array.from(agendaOverrideMap.entries()).map(([agendaId, pdfPath]) => ({ agendaId, pdfPath })),
+    excludedAgendaIds,
+    includeBookmarks: typeof source.includeBookmarks === 'boolean'
+      ? source.includeBookmarks
+      : defaults.includeBookmarks,
     includeSectionDividerPages: typeof source.includeSectionDividerPages === 'boolean'
       ? source.includeSectionDividerPages
       : defaults.includeSectionDividerPages,
@@ -225,4 +248,3 @@ export function normalizeMeetingPackConfig(raw: unknown, agendas: Agenda[]): Mee
     subsectionDividerPdfPath: toNullablePath(source.subsectionDividerPdfPath) ?? defaults.subsectionDividerPdfPath,
   }
 }
-

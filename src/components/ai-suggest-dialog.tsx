@@ -2,14 +2,15 @@
 
 import { useState, useTransition } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { suggestMeeting, createMeetingWithAgendas } from '@/actions/meeting'
-import { useRouter } from 'next/navigation'
+import { useNavigationTransition } from '@/components/navigation-transition-provider'
+import { postJson } from '@/lib/api/client'
 import type { Committee } from '@/lib/supabase/types'
 
 interface Suggestion {
@@ -27,7 +28,7 @@ interface Props {
 }
 
 export function AiSuggestDialog({ open, onOpenChange, committees }: Props) {
-  const router = useRouter()
+  const { push } = useNavigationTransition()
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null)
   const [isPending, startTransition] = useTransition()
   const [isCreating, startCreating] = useTransition()
@@ -41,11 +42,20 @@ export function AiSuggestDialog({ open, onOpenChange, committees }: Props) {
   function handleSuggest(formData: FormData) {
     const description = formData.get('description') as string
     startTransition(async () => {
-      const result = await suggestMeeting(
-        description,
-        committees.map(c => ({ id: c.id, name: c.name })),
-      )
-      setSuggestion(result)
+      try {
+        const result = await postJson<{
+          ok: true
+          suggestion: Suggestion
+        }>('/api/meetings/suggest', {
+          description,
+          committees: committees.map(c => ({ id: c.id, name: c.name })),
+        })
+        setSuggestion(result.suggestion)
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to suggest meeting',
+        )
+      }
     })
   }
 
@@ -56,11 +66,24 @@ export function AiSuggestDialog({ open, onOpenChange, committees }: Props) {
     const agendaItems = suggestion?.agendaItems ?? []
 
     startCreating(async () => {
-      const result = await createMeetingWithAgendas({
-        title, meetingDate, committeeId, agendaItems,
-      })
-      handleClose(false)
-      router.push(result.redirectPath)
+      try {
+        const result = await postJson<{
+          ok: true
+          meetingId: string
+          redirectPath: string
+        }>('/api/meetings', {
+          title,
+          meetingDate,
+          committeeId,
+          agendaItems,
+        })
+        handleClose(false)
+        push(result.redirectPath)
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to create meeting',
+        )
+      }
     })
   }
 
@@ -77,7 +100,13 @@ export function AiSuggestDialog({ open, onOpenChange, committees }: Props) {
               Describe your meeting and AI will suggest title, committee, and agenda items
             </DialogDescription>
           </DialogHeader>
-          <form action={handleSuggest} className="space-y-4">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              handleSuggest(new FormData(event.currentTarget))
+            }}
+            className="space-y-4"
+          >
             <Textarea
               name="description"
               placeholder="e.g. Monthly risk review to discuss credit exposure, market risk limits, and the new Basel III requirements..."
@@ -105,7 +134,13 @@ export function AiSuggestDialog({ open, onOpenChange, committees }: Props) {
           <DialogTitle>AI Suggestions</DialogTitle>
           <DialogDescription>{suggestion.reasoning}</DialogDescription>
         </DialogHeader>
-        <form action={handleCreate} className="space-y-4">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            handleCreate(new FormData(event.currentTarget))
+          }}
+          className="space-y-4"
+        >
           <div className="space-y-2">
             <label htmlFor="ai-title" className="text-sm font-medium">Suggested Title</label>
             <Input id="ai-title" name="title" defaultValue={suggestion.title} required minLength={3} />

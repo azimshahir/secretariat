@@ -2,12 +2,31 @@
 
 import { generateText } from 'ai'
 import { createClient } from '@/lib/supabase/server'
-import { resolveLanguageModelForOrganization } from '@/lib/ai/model-config'
+import { resolveLanguageModelForUserPlan } from '@/lib/ai/model-config'
 import { getDefaultPersona } from '@/lib/ai/personas'
 import { extractDocxText } from '@/lib/docx-utils'
+import { getUserEntitlementSnapshot } from '@/lib/subscription/entitlements'
 import { uuidSchema } from '@/lib/validation'
+import {
+  hydrateTemplateGroups,
+  isMatterArisingSectionTitle,
+  type LegacyItineraryTemplate,
+} from '@/app/meeting/[id]/setup/settings-template-model'
 
-type SectionType = 'agenda' | 'presenter-list' | 'summary-of-decision'
+type SectionType = 'agenda' | 'presenter-list' | 'matter-arising'
+
+export interface MatterArisingParagraph {
+  text: string
+  kind: 'title' | 'body' | 'value'
+}
+
+export interface MatterArisingStructuredRow {
+  no: string
+  meeting: string
+  currentDevelopment: string
+  mattersArising: MatterArisingParagraph[]
+  actionBy: MatterArisingParagraph[]
+}
 
 export interface ItineraryResult {
   columns: string[]
@@ -15,13 +34,145 @@ export interface ItineraryResult {
   templateUrl: string | null
   meetingTitle: string
   formattedDate: string
+  matterArisingRows?: MatterArisingStructuredRow[]
 }
 
 function inferSectionType(title: string): SectionType {
   const t = title.trim().toLowerCase()
   if (t === 'presenter list') return 'presenter-list'
-  if (t.includes('matter arising') || t.includes('summary of decision')) return 'summary-of-decision'
+  if (isMatterArisingSectionTitle(t)) return 'matter-arising'
   return 'agenda'
+}
+
+function deriveMeetingLabel(meetingTitle: string) {
+  const normalized = meetingTitle.trim()
+  const match = normalized.match(/\b\d{1,2}\/\d{2,4}\b.*$/i)
+  return match?.[0]?.trim() || normalized
+}
+
+function extractResolvedBlock(content: string) {
+  const normalized = content.replace(/\r\n/g, '\n').trim()
+  const match = normalized.match(/(?:^|\n)RESOLVED\s*\n([\s\S]*?)(?=\n[A-Z][A-Z &/()'-]{2,}\n|$)/i)
+  return match?.[1]?.trim() ?? ''
+}
+
+const EXPLICIT_OWNER_LINE_PATTERN = /^(?:action by|pic|owner|person in charge)\s*:\s*(.+)$/i
+
+function stripMatterArisingLeadParagraph(paragraphs: string[]) {
+  if (paragraphs.length === 0) return paragraphs
+
+  const first = paragraphs[0]?.replace(/\s+/g, ' ').trim() ?? ''
+  if (!first) return paragraphs
+
+  const inlineLeadMatch = first.match(/^(.*?\bresolved)\s*:\s*(.+)$/i)
+  if (inlineLeadMatch && /\b(?:committee|board|members?|meeting|paper|proposal|item)\b/i.test(inlineLeadMatch[1] ?? '')) {
+    const remainder = inlineLeadMatch[2]?.trim() ?? ''
+    if (remainder) {
+      paragraphs[0] = remainder
+    } else {
+      paragraphs.shift()
+    }
+    return paragraphs
+  }
+
+  if (
+    /resolved\s*:?\s*$/i.test(first)
+    && /\b(?:committee|board|members?|meeting|paper|proposal|item)\b/i.test(first)
+  ) {
+    paragraphs.shift()
+  }
+
+  return paragraphs
+}
+
+function parseMatterArisingResolved(params: {
+  resolvedSection: string
+  actionItems: Array<{ description: string; pic: string | null }>
+}) {
+  const bodyParagraphs: string[] = []
+  const actionByLines: string[] = []
+  let currentParagraphLines: string[] = []
+
+  const flushParagraph = () => {
+    if (currentParagraphLines.length === 0) return
+    const paragraph = currentParagraphLines.join(' ').replace(/\s+/g, ' ').trim()
+    if (paragraph) bodyParagraphs.push(paragraph)
+    currentParagraphLines = []
+  }
+
+  params.resolvedSection
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .forEach(rawLine => {
+      const line = rawLine.trim()
+      if (!line) {
+        flushParagraph()
+        return
+      }
+
+      if (/^resolved\s*:?$/i.test(line)) {
+        flushParagraph()
+        return
+      }
+
+      const ownerMatch = line.match(EXPLICIT_OWNER_LINE_PATTERN)
+      if (ownerMatch) {
+        flushParagraph()
+        const ownerValue = ownerMatch[1]?.trim() ?? ''
+        if (ownerValue) actionByLines.push(ownerValue)
+        return
+      }
+
+      currentParagraphLines.push(line)
+    })
+
+  flushParagraph()
+  stripMatterArisingLeadParagraph(bodyParagraphs)
+
+  const fallbackBodyParagraphs = params.actionItems
+    .map(item => item.description.trim())
+    .filter(Boolean)
+  const fallbackActionByLines = params.actionItems
+    .map(item => item.pic?.trim() ?? '')
+    .filter(Boolean)
+
+  return {
+    bodyParagraphs: bodyParagraphs.length > 0 ? bodyParagraphs : fallbackBodyParagraphs,
+    actionByLines: actionByLines.length > 0 ? actionByLines : fallbackActionByLines,
+  }
+}
+
+function buildMatterArisingRows(params: {
+  agendas: Array<{ id: string; agenda_no: string; title: string }>
+  meetingLabel: string
+  actionItems: Array<{ agenda_id: string; description: string; pic: string | null }>
+  minuteByAgendaId: Map<string, string>
+}) {
+  const actionItemsByAgendaId = new Map<string, Array<{ description: string; pic: string | null }>>()
+  params.actionItems.forEach(item => {
+    const current = actionItemsByAgendaId.get(item.agenda_id) ?? []
+    current.push(item)
+    actionItemsByAgendaId.set(item.agenda_id, current)
+  })
+
+  return params.agendas.map((agenda, index) => {
+    const actionItems = actionItemsByAgendaId.get(agenda.id) ?? []
+    const parsedResolved = parseMatterArisingResolved({
+      resolvedSection: extractResolvedBlock(params.minuteByAgendaId.get(agenda.id) ?? ''),
+      actionItems,
+    })
+
+    return {
+      no: String(index + 1),
+      meeting: params.meetingLabel,
+      currentDevelopment: '',
+      mattersArising: [
+        { text: agenda.title, kind: 'title' as const },
+        ...parsedResolved.bodyParagraphs.map(text => ({ text, kind: 'body' as const })),
+      ],
+      actionBy: parsedResolved.actionByLines.map(text => ({ text, kind: 'value' as const })),
+    }
+  })
 }
 
 export async function generateItineraryContent(
@@ -36,10 +187,15 @@ export async function generateItineraryContent(
 
   const { data: meeting } = await supabase
     .from('meetings')
-    .select('id, title, meeting_date, organization_id, committee_id, committees(id, slug, persona_prompt)')
+    .select('id, title, meeting_date, organization_id, committee_id, meeting_rules, template_section_overrides, committees(id, slug, persona_prompt)')
     .eq('id', meetingId)
     .single()
   if (!meeting) throw new Error('Meeting not found')
+
+  const entitlement = await getUserEntitlementSnapshot({
+    userId: user.id,
+    organizationId: meeting.organization_id,
+  })
 
   const { data: agendas } = await supabase
     .from('agendas')
@@ -54,62 +210,123 @@ export async function generateItineraryContent(
     id: string; slug: string; persona_prompt: string | null
   } | null
 
-  // For Matter Arising: also fetch generated minutes
-  let minuteBlock = ''
-  if (sectionType === 'summary-of-decision') {
-    const { data: minutes } = await supabase
-      .from('minutes')
-      .select('agenda_id, content')
-      .in('agenda_id', active.map(a => a.id))
-      .eq('is_current', true)
-    console.log('[Matter Arising] Minutes fetched:', minutes?.length ?? 0, 'rows')
-    if (minutes?.length) {
-      const map = new Map(minutes.map(m => [m.agenda_id, m.content]))
-      minuteBlock = active
-        .filter(a => map.has(a.id))
-        .map(a => `AGENDA ${a.agenda_no}: ${a.title}\n${map.get(a.id)}`)
-        .join('\n\n---\n\n')
-      console.log('[Matter Arising] minuteBlock length:', minuteBlock.length, 'chars')
-    } else {
-      console.log('[Matter Arising] NO minutes found for agenda IDs:', active.map(a => a.id))
-    }
+  let effectiveGroups = hydrateTemplateGroups({
+    minuteInstruction: typeof meeting.meeting_rules === 'string' ? meeting.meeting_rules : '',
+    persistedGroups: Array.isArray(meeting.template_section_overrides) ? meeting.template_section_overrides : [],
+  })
+
+  if (committee?.id) {
+    const [{ data: settings }, { data: itineraryTemplates }] = await Promise.all([
+      supabase
+        .from('committee_generation_settings')
+        .select('minute_instruction, template_sections')
+        .eq('committee_id', committee.id)
+        .maybeSingle(),
+      supabase
+        .from('itinerary_templates')
+        .select('section_key, storage_path, file_name')
+        .eq('committee_id', committee.id),
+    ])
+
+    effectiveGroups = hydrateTemplateGroups({
+      minuteInstruction: typeof meeting.meeting_rules === 'string' && meeting.meeting_rules.trim().length > 0
+        ? meeting.meeting_rules
+        : settings?.minute_instruction ?? '',
+      itineraryTemplates: (itineraryTemplates ?? []) as LegacyItineraryTemplate[],
+      persistedGroups: Array.isArray(meeting.template_section_overrides) && meeting.template_section_overrides.length > 0
+        ? meeting.template_section_overrides
+        : settings?.template_sections ?? [],
+    })
   }
+
+  const resolvedSection = effectiveGroups
+    .flatMap(group => group.sections)
+    .find(section => section.title.trim().toLowerCase() === sectionTitle.trim().toLowerCase())
+
+  const [{ data: minutes }, { data: actionItems }] = await Promise.all([
+    sectionType === 'matter-arising'
+      ? supabase
+        .from('minutes')
+        .select('agenda_id, content')
+        .in('agenda_id', active.map(a => a.id))
+        .eq('is_current', true)
+      : Promise.resolve({ data: [] as Array<{ agenda_id: string; content: string }> }),
+    sectionType === 'matter-arising'
+      ? supabase
+        .from('action_items')
+        .select('agenda_id, description, pic, sort_order')
+        .eq('meeting_id', meetingId)
+        .order('sort_order')
+      : Promise.resolve({ data: [] as Array<{ agenda_id: string; description: string; pic: string | null; sort_order: number }> }),
+  ])
 
   // Check for uploaded template DOCX
   let templateUrl: string | null = null
   let templateRef = ''
-  const sectionKey = sectionTitle.trim().toLowerCase().replace(/\s+/g, '-')
-  if (committee?.id) {
-    const { data: tmpl } = await supabase
-      .from('itinerary_templates')
-      .select('storage_path')
-      .eq('committee_id', committee.id)
-      .eq('section_key', sectionKey)
-      .maybeSingle()
-    if (tmpl?.storage_path) {
+  if (resolvedSection?.templateStoragePath) {
+    if (sectionType !== 'matter-arising') {
       const { data: fileData } = await supabase.storage
-        .from('meeting-files').download(tmpl.storage_path)
+        .from('meeting-files').download(resolvedSection.templateStoragePath)
       if (fileData) {
         const text = await extractDocxText(await fileData.arrayBuffer())
         if (text) templateRef = `PREVIOUS TEMPLATE (match this format, column structure, and style EXACTLY):\n---\n${text}\n---\n\n`
       }
-      const { data: signed } = await supabase.storage
-        .from('meeting-files').createSignedUrl(tmpl.storage_path, 3600)
-      templateUrl = signed?.signedUrl ?? null
     }
+    const { data: signed } = await supabase.storage
+      .from('meeting-files').createSignedUrl(resolvedSection.templateStoragePath, 3600)
+    templateUrl = signed?.signedUrl ?? null
   }
 
   const formattedDate = new Date(meeting.meeting_date).toLocaleDateString('en-MY', {
     day: 'numeric', month: 'long', year: 'numeric',
   })
+  const meetingLabel = deriveMeetingLabel(meeting.title)
   const agendaJson = JSON.stringify(active.map(a => ({
     no: a.agenda_no, title: a.title, presenter: a.presenter ?? '',
   })))
 
-  const prompt = buildPrompt(sectionType, templateRef, meeting.title, formattedDate, agendaJson, minuteBlock, sectionPrompt)
+  if (sectionType === 'matter-arising') {
+    const minuteByAgendaId = new Map((minutes ?? []).map(minute => [minute.agenda_id, minute.content]))
+    const matterArisingRows = buildMatterArisingRows({
+      agendas: active.map(agenda => ({
+        id: agenda.id,
+        agenda_no: agenda.agenda_no,
+        title: agenda.title,
+      })),
+      meetingLabel,
+      actionItems: (actionItems ?? []).map(item => ({
+        agenda_id: item.agenda_id,
+        description: item.description,
+        pic: item.pic,
+      })),
+      minuteByAgendaId,
+    })
+
+    return {
+      columns: ['No.', 'Meeting', 'Matters Arising', 'Action By', 'Current Development'],
+      rows: matterArisingRows.map(row => [
+        row.no,
+        row.meeting,
+        row.mattersArising.map(paragraph => paragraph.text).join('\n'),
+        row.actionBy.map(paragraph => paragraph.text).join('\n'),
+        row.currentDevelopment,
+      ]),
+      templateUrl,
+      meetingTitle: meeting.title,
+      formattedDate,
+      matterArisingRows,
+    }
+  }
+
+  const effectivePrompt = sectionPrompt.trim() || resolvedSection?.prompt || ''
+  const prompt = buildPrompt(sectionType, templateRef, meeting.title, formattedDate, agendaJson, effectivePrompt)
   const sectionPersona = ITINERARY_PERSONAS[sectionType]
   const committeePersona = committee?.persona_prompt || getDefaultPersona(committee?.slug ?? 'board')
-  const model = await resolveLanguageModelForOrganization(meeting.organization_id, 'generate_itineraries')
+  const model = await resolveLanguageModelForUserPlan(
+    meeting.organization_id,
+    entitlement.planTier,
+    'generate_itineraries',
+  )
   const result = await generateText({ model, system: `${sectionPersona}\n\n${committeePersona}`, prompt })
 
   return { ...parseJson(result.text, sectionType), templateUrl, meetingTitle: meeting.title, formattedDate }
@@ -126,64 +343,15 @@ You produce precise, audit-ready agenda tables that match the organization's est
 You understand corporate titles, department structures, and meeting presentation protocols.
 You ensure every agenda item has the correct presenter/owner attributed, using proper honorifics and designations as per organizational convention.`,
 
-  'summary-of-decision': `You are a Senior Company Secretariat officer preparing the Matter Arising / Summary of Decision document.
-You have deep expertise in extracting actionable decisions from meeting minutes.
-
-UNDERSTANDING MINUTE STRUCTURE:
-You must recognise these sections within each agenda's minutes:
-- NOTED: Information acknowledged — no action required, skip these.
-- DISCUSSED: Points debated — may or may not have follow-up, check carefully.
-- RESOLVED / DECIDED: Formal decisions made — these MUST be captured as decisions.
-- ACTION ITEMS: Specific tasks with PIC (Person In Charge) and due dates — these are CRITICAL and must be extracted exactly.
-
-TEMPLATE AWARENESS:
-When a previous template is provided, you must carefully analyse its structure:
-- Identify where the previous meeting date, meeting title, and paper titles were placed — replace them with the CURRENT meeting's date, title, and paper titles.
-- Identify where action items and decisions were recorded in the previous template — place the NEW actions and decisions in the exact same columns/positions.
-- Preserve the template's column structure, row layout, and formatting style exactly.
-- Do NOT compress multiple lines into a single cell — keep each action item, decision, and remark on its own line within the cell, matching how the previous template spaced them.
-
-EXTRACTION PROCESS:
-For each agenda item, read the generated minutes and:
-1. Look for RESOLVED/DECIDED sections — extract the resolution text verbatim.
-2. Look for ACTION ITEMS sections — extract the task, PIC, and due date verbatim.
-3. Match each extracted action/decision to its correct agenda number.
-4. If an agenda has no resolution or action item, still include it as a row but leave the action/decision columns empty or marked "-".
-
-Your output must read as if a human secretary carefully went through every agenda's minutes, pulled out the relevant decisions and actions, and placed them into the correct cells of a structured table.`,
+  'matter-arising': `You are a Senior Company Secretariat officer preparing formal Matter Arising documents.`,
 }
 
 function buildPrompt(
   type: SectionType, templateRef: string, title: string,
-  date: string, agendaJson: string, minuteBlock: string, instruction: string,
+  date: string, agendaJson: string, instruction: string,
 ) {
   const base = `MEETING: ${title}\nDATE: ${date}\n\n${templateRef}${instruction ? `SECRETARIAT INSTRUCTIONS:\n${instruction}\n\n` : ''}CURRENT AGENDA DATA:\n${agendaJson}\n\n`
 
-  if (type === 'summary-of-decision') {
-    return `${base}${minuteBlock ? `GENERATED MEETING MINUTES (read these carefully — this is the actual content from "Generate MoM"):\n---\n${minuteBlock}\n---\n\n` : ''}You are generating the Matter Arising / Summary of Decision table.
-
-STEP 1: List ALL agenda items from the CURRENT AGENDA DATA above. Every single agenda MUST appear as a row.
-
-STEP 2: For each agenda, read its minute content above. Look specifically for:
-- **RESOLVED** or **DECIDED** sections — these are formal decisions
-- **ACTION ITEMS** sections — these are tasks with PIC/due dates
-- Any text containing "Action By:", "PIC:", "Person In Charge:", deadlines, or follow-up requirements
-
-STEP 3: For each agenda row:
-- If the agenda has RESOLVED/DECIDED content → copy the resolution text into the Decision/Action column
-- If the agenda has ACTION ITEMS → copy the action text, PIC, and due date into the respective columns
-- If the agenda has BOTH resolved + action items → include both
-- If the agenda has NEITHER (just Noted/Discussed with no action) → put "-" in the action columns but STILL include the agenda row
-
-IMPORTANT:
-- ALL agendas must appear in the table, even those with no actions (leave action columns blank/"-")
-- Copy the EXACT text from RESOLVED and ACTION ITEMS sections — do not paraphrase or summarize
-- If a template is provided above, match its column structure and style EXACTLY
-- If no template, use columns: ["Agenda No.","Agenda Item","Decision/Action","PIC","Due Date","Status"]
-- For Status column, use "New" for all items from this meeting
-
-Return ONLY valid JSON: {"columns":[...],"rows":[[...],...]}`
-  }
   if (type === 'presenter-list') {
     return `${base}You are generating the Presenter List table for this meeting.
 
@@ -214,7 +382,7 @@ Return ONLY valid JSON: {"columns":[...],"rows":[[...],...]}`
 const DEFAULTS: Record<SectionType, string[]> = {
   'agenda': ['Agenda No.', 'Agenda Item', 'Owner'],
   'presenter-list': ['Agenda No.', 'Agenda Item', 'Presenter'],
-  'summary-of-decision': ['Agenda No.', 'Agenda Item', 'Decision/Action', 'PIC', 'Due Date', 'Status'],
+  'matter-arising': ['No.', 'Meeting', 'Matters Arising', 'Action By', 'Current Development'],
 }
 
 function parseJson(text: string, type: SectionType): { columns: string[]; rows: string[][] } {

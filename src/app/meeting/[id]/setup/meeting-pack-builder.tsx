@@ -14,11 +14,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import { resolveAgendaPdfPathWithHeader, usesHeaderAgendaPdf } from '@/lib/agenda-pdf'
 import type { Agenda } from '@/lib/supabase/types'
-import {
-  saveMeetingPackConfig,
-  uploadMeetingPackPdf,
-} from './meeting-pack-actions'
 import {
   groupAgendasForMeetingPack,
   type AgendaPackSection,
@@ -52,6 +49,24 @@ function sanitizeFilename(input: string) {
   return input.replace(/[^a-zA-Z0-9-_]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
 }
 
+async function readMeetingPackApiResult<T extends { ok?: boolean; message?: string }>(
+  response: Response,
+): Promise<T> {
+  const contentType = response.headers.get('content-type') ?? ''
+
+  if (contentType.includes('application/json')) {
+    return await response.json() as T
+  }
+
+  const text = await response.text()
+  const titleMatch = text.match(/<title>([^<]+)<\/title>/i)
+
+  return {
+    ok: false,
+    message: titleMatch?.[1]?.trim() || text.trim() || `Request failed with status ${response.status}`,
+  } as T
+}
+
 function getSafeMeetingPackError(error: unknown, fallback: string) {
   if (error instanceof Error) {
     const message = error.message?.trim()
@@ -61,6 +76,54 @@ function getSafeMeetingPackError(error: unknown, fallback: string) {
     if (message) return message
   }
   return fallback
+}
+
+async function uploadMeetingPackPdfRequest(meetingId: string, file: File) {
+  const formData = new FormData()
+  formData.set('file', file)
+
+  const response = await fetch(`/api/meeting/${meetingId}/meeting-pack/pdf-upload`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  const result = await readMeetingPackApiResult<{
+    ok?: boolean
+    message?: string
+    path?: string
+    mediaId?: string
+    signedUrl?: string
+  }>(response)
+
+  if (!response.ok || !result.ok || !result.path) {
+    throw new Error(result.message || 'Failed to upload PDF')
+  }
+
+  return {
+    path: result.path,
+    mediaId: result.mediaId ?? null,
+    signedUrl: result.signedUrl ?? null,
+  }
+}
+
+async function saveMeetingPackConfigRequest(meetingId: string, config: MeetingPackConfig) {
+  const response = await fetch(`/api/meeting/${meetingId}/meeting-pack/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  })
+
+  const result = await readMeetingPackApiResult<{
+    ok?: boolean
+    message?: string
+    config?: MeetingPackConfig
+  }>(response)
+
+  if (!response.ok || !result.ok || !result.config) {
+    throw new Error(result.message || 'Failed to save Meeting Pack')
+  }
+
+  return result.config
 }
 
 function getBlockLabel(
@@ -97,7 +160,7 @@ function getPdfPath(
     const headingId = blockId.slice('section:'.length)
     const section = sectionMap.get(headingId)
     if (!section) return null
-    return overrideMap.get(section.heading.id) ?? section.heading.slide_pages
+    return overrideMap.get(section.heading.id) ?? resolveAgendaPdfPathWithHeader(section.heading.slide_pages, null)
   }
   if (blockId.startsWith('custom:')) {
     const customId = blockId.slice('custom:'.length)
@@ -145,11 +208,34 @@ export function MeetingPackBuilder({ meetingId, meetingTitle, meetingDate, agend
     })
   }
 
+  function removeBlock(blockId: TopLevelBlockId) {
+    setDraft(current => {
+      if (!current) return current
+
+      if (blockId.startsWith('custom:')) {
+        const customId = blockId.slice('custom:'.length)
+        return {
+          ...current,
+          customSections: current.customSections.filter(section => section.id !== customId),
+          topLevelOrder: current.topLevelOrder.filter(currentBlock => currentBlock !== blockId),
+        }
+      }
+
+      return {
+        ...current,
+        excludedTopLevelBlockIds: current.excludedTopLevelBlockIds.includes(blockId)
+          ? current.excludedTopLevelBlockIds
+          : [...current.excludedTopLevelBlockIds, blockId],
+        topLevelOrder: current.topLevelOrder.filter(currentBlock => currentBlock !== blockId),
+      }
+    })
+  }
+
   async function handleUpload(fieldKey: string, file: File | null, apply: (path: string | null) => void) {
     if (!file) return
     setUploadingField(fieldKey)
     try {
-      const uploaded = await uploadMeetingPackPdf(meetingId, file)
+      const uploaded = await uploadMeetingPackPdfRequest(meetingId, file)
       apply(uploaded.path)
       toast.success('PDF updated')
     } catch (e) {
@@ -235,11 +321,22 @@ export function MeetingPackBuilder({ meetingId, meetingTitle, meetingDate, agend
     })
   }
 
+  function removeSubItem(agendaId: string) {
+    setDraft(current => {
+      if (!current) return current
+      if (current.excludedAgendaIds.includes(agendaId)) return current
+      return {
+        ...current,
+        excludedAgendaIds: [...current.excludedAgendaIds, agendaId],
+      }
+    })
+  }
+
   async function persistDraft() {
     if (!draft) return null
     setIsSaving(true)
     try {
-      const saved = await saveMeetingPackConfig(meetingId, draft)
+      const saved = await saveMeetingPackConfigRequest(meetingId, draft)
       setConfig(saved)
       setDraft(cloneConfig(saved))
       toast.success('Meeting Pack saved')
@@ -323,6 +420,7 @@ export function MeetingPackBuilder({ meetingId, meetingTitle, meetingDate, agend
                 {' | '}
                 {config.includeSubsectionDividerPages ? 'Subsection ON' : 'Subsection OFF'}
               </p>
+              <p>Bookmarks: {config.includeBookmarks ? 'ON' : 'OFF'}</p>
             </div>
           )}
         </CardContent>
@@ -352,6 +450,7 @@ export function MeetingPackBuilder({ meetingId, meetingTitle, meetingDate, agend
                 onSetPdf={setPdfForBlock}
                 onSetSubItemPdf={setSubItemPdf}
                 onAddCustom={addCustomSection}
+                onRemoveBlock={removeBlock}
                 onRemoveCustom={removeCustomSection}
                 onRenameCustom={(customId, title) => setDraft(current => {
                   if (!current) return current
@@ -362,9 +461,18 @@ export function MeetingPackBuilder({ meetingId, meetingTitle, meetingDate, agend
                     ),
                   }
                 })}
+                onRemoveSubItem={removeSubItem}
               />
 
               <Separator />
+
+              <SimpleToggleCard
+                id="include-bookmarks-toggle"
+                label="Include bookmarks"
+                description="Adds PDF bookmarks for agenda headings and sub-agenda items in the downloaded Meeting Pack."
+                enabled={draft.includeBookmarks}
+                onToggle={checked => setDraft(c => (c ? { ...c, includeBookmarks: checked } : c))}
+              />
 
               <div className="space-y-3">
                 <p className="text-sm font-semibold">Divider Pages</p>
@@ -423,13 +531,15 @@ interface UnifiedListProps {
   onSetPdf: (blockId: TopLevelBlockId, path: string | null) => void
   onSetSubItemPdf: (agendaId: string, path: string | null) => void
   onAddCustom: () => void
+  onRemoveBlock: (blockId: TopLevelBlockId) => void
   onRemoveCustom: (customId: string) => void
   onRenameCustom: (customId: string, title: string) => void
+  onRemoveSubItem: (agendaId: string) => void
 }
 
 function UnifiedList({
   draft, sectionMap, overrideMap, uploadingField, dragRef,
-  onMove, onUpload, onSetPdf, onSetSubItemPdf, onAddCustom, onRemoveCustom, onRenameCustom,
+  onMove, onUpload, onSetPdf, onSetSubItemPdf, onAddCustom, onRemoveBlock, onRemoveCustom, onRenameCustom, onRemoveSubItem,
 }: UnifiedListProps) {
   return (
     <div className="space-y-1">
@@ -456,6 +566,7 @@ function UnifiedList({
               uploadingField={uploadingField}
               onUpload={onUpload}
               onSetPdf={onSetPdf}
+              onRemoveBlock={onRemoveBlock}
               onRemoveCustom={onRemoveCustom}
               onRenameCustom={onRenameCustom}
             />
@@ -465,14 +576,18 @@ function UnifiedList({
           {blockId.startsWith('section:') && (() => {
             const section = sectionMap.get(blockId.slice('section:'.length))
             if (!section || section.items.length === 0) return null
-            return section.items.map(item => (
+            return section.items
+              .filter(item => !draft.excludedAgendaIds.includes(item.id))
+              .map(item => (
               <SubItemRow
                 key={item.id}
                 item={item}
+                headerPdfPath={section.heading.slide_pages}
                 overrideMap={overrideMap}
                 uploadingField={uploadingField}
                 onUpload={onUpload}
                 onSetPdf={onSetSubItemPdf}
+                onDelete={onRemoveSubItem}
               />
             ))
           })()}
@@ -497,13 +612,14 @@ interface BlockRowProps {
   uploadingField: string | null
   onUpload: (key: string, file: File | null, apply: (path: string | null) => void) => void
   onSetPdf: (blockId: TopLevelBlockId, path: string | null) => void
+  onRemoveBlock: (blockId: TopLevelBlockId) => void
   onRemoveCustom: (customId: string) => void
   onRenameCustom: (customId: string, title: string) => void
 }
 
 function BlockRow({
   blockId, draft, sectionMap, overrideMap, uploadingField,
-  onUpload, onSetPdf, onRemoveCustom, onRenameCustom,
+  onUpload, onSetPdf, onRemoveBlock, onRemoveCustom, onRenameCustom,
 }: BlockRowProps) {
   const label = getBlockLabel(blockId, draft, sectionMap)
   const pdfPath = getPdfPath(blockId, draft, overrideMap, sectionMap)
@@ -528,7 +644,6 @@ function BlockRow({
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <UploadButton
-          fieldKey={fieldKey}
           uploading={uploadingField === fieldKey}
           hasPdf={!!pdfPath}
           onFile={file => onUpload(fieldKey, file, path => onSetPdf(blockId, path))}
@@ -539,11 +654,22 @@ function BlockRow({
             No PDF
           </Button>
         )}
-        {isCustom && customId && (
-          <Button type="button" variant="ghost" size="sm" className="gap-1 text-xs h-7 px-2 text-red-500 hover:text-red-600" onClick={() => onRemoveCustom(customId)}>
-            <Trash2 className="h-3 w-3" />
-          </Button>
-        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="gap-1 text-xs h-7 px-2 text-red-500 hover:text-red-600"
+          onClick={() => {
+            if (isCustom && customId) {
+              onRemoveCustom(customId)
+              return
+            }
+            onRemoveBlock(blockId)
+          }}
+        >
+          <Trash2 className="h-3 w-3" />
+          Delete
+        </Button>
       </div>
     </div>
   )
@@ -553,26 +679,32 @@ function BlockRow({
 
 interface SubItemRowProps {
   item: Agenda
+  headerPdfPath: string | null
   overrideMap: Map<string, string>
   uploadingField: string | null
   onUpload: (key: string, file: File | null, apply: (path: string | null) => void) => void
   onSetPdf: (agendaId: string, path: string | null) => void
+  onDelete: (agendaId: string) => void
 }
 
-function SubItemRow({ item, overrideMap, uploadingField, onUpload, onSetPdf }: SubItemRowProps) {
+function SubItemRow({ item, headerPdfPath, overrideMap, uploadingField, onUpload, onSetPdf, onDelete }: SubItemRowProps) {
   const overridePdf = overrideMap.get(item.id)
-  const pdfPath = overridePdf ?? item.slide_pages
+  const pdfPath = overridePdf ?? resolveAgendaPdfPathWithHeader(item.slide_pages, headerPdfPath)
   const fieldKey = `sub-${item.id}`
+  const usingHeaderPdf = !overridePdf && usesHeaderAgendaPdf(item.slide_pages)
 
   return (
     <div className="flex items-center gap-2 rounded-md border border-zinc-100 dark:border-zinc-800 ml-8 px-3 py-1.5 mt-0.5 bg-zinc-50/50 dark:bg-zinc-900/50">
       <div className="min-w-0 flex-1">
         <p className="text-sm text-zinc-700 dark:text-zinc-300 truncate">{item.agenda_no} {item.title}</p>
-        {pdfPath && <p className="text-xs text-zinc-500 truncate">{getFileName(pdfPath)}</p>}
+        {pdfPath ? (
+          <p className="text-xs text-zinc-500 truncate">
+            {usingHeaderPdf ? `Using header PDF: ${getFileName(pdfPath)}` : getFileName(pdfPath)}
+          </p>
+        ) : null}
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <UploadButton
-          fieldKey={fieldKey}
           uploading={uploadingField === fieldKey}
           hasPdf={!!pdfPath}
           onFile={file => onUpload(fieldKey, file, path => onSetPdf(item.id, path))}
@@ -583,6 +715,16 @@ function SubItemRow({ item, overrideMap, uploadingField, onUpload, onSetPdf }: S
             No PDF
           </Button>
         )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="gap-1 text-xs h-7 px-2 text-red-500 hover:text-red-600"
+          onClick={() => onDelete(item.id)}
+        >
+          <Trash2 className="h-3 w-3" />
+          Delete
+        </Button>
       </div>
     </div>
   )
@@ -613,7 +755,6 @@ function DividerToggle({ id, label, description, enabled, onToggle, customPdfPat
           <p className="text-xs text-zinc-500">{description}</p>
           <div className="flex items-center gap-2">
             <UploadButton
-              fieldKey={fieldKey}
               uploading={uploadingField === fieldKey}
               hasPdf={!!customPdfPath}
               onFile={file => onUpload(fieldKey, file, path => onSetPath(path))}
@@ -636,10 +777,29 @@ function DividerToggle({ id, label, description, enabled, onToggle, customPdfPat
   )
 }
 
+function SimpleToggleCard({ id, label, description, enabled, onToggle }: {
+  id: string
+  label: string
+  description: string
+  enabled: boolean
+  onToggle: (checked: boolean) => void
+}) {
+  return (
+    <div className="rounded-md border">
+      <div className="flex items-center justify-between px-3 py-2">
+        <div className="space-y-1">
+          <Label htmlFor={id} className="text-sm">{label}</Label>
+          <p className="text-xs text-zinc-500">{description}</p>
+        </div>
+        <Switch id={id} checked={enabled} onCheckedChange={onToggle} />
+      </div>
+    </div>
+  )
+}
+
 /* ─── Shared upload button ─── */
 
-function UploadButton({ fieldKey, uploading, hasPdf, onFile }: {
-  fieldKey: string
+function UploadButton({ uploading, hasPdf, onFile }: {
   uploading: boolean
   hasPdf: boolean
   onFile: (file: File | null) => void

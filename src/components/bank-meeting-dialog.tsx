@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Building2, Check } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { Button } from '@/components/ui/button'
 import type { Committee } from '@/lib/supabase/types'
 
@@ -16,7 +16,7 @@ interface Props {
 }
 
 export function BankMeetingDialog({ open, onOpenChange, committees }: Props) {
-  const router = useRouter()
+  const { push } = useNavigationTransition()
   const [selected, setSelected] = useState<Committee | null>(null)
 
   function handleClose(v: boolean) {
@@ -27,7 +27,7 @@ export function BankMeetingDialog({ open, onOpenChange, committees }: Props) {
   function handleCreate() {
     if (!selected) return
     handleClose(false)
-    router.push(`/?committee=${selected.id}`)
+    push(`/?committee=${selected.id}`)
   }
 
   return (

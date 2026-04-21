@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { buildStoredMinuteTemplateData } from '@/lib/meeting-generation/minute-template'
 import { committeeSchema, formatTemplateSchema, glossarySchema, uuidSchema } from '@/lib/validation'
 
 async function requireUserOrg() {
@@ -74,11 +75,15 @@ export async function saveFormatTemplate(formData: FormData) {
     promptText: formData.get('promptText'),
   })
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? 'Invalid format template')
+  const compiledTemplate = buildStoredMinuteTemplateData(parsed.data.promptText)
 
   await supabase.from('format_templates').insert({
     committee_id: parsed.data.committeeId,
     name: parsed.data.name,
     prompt_text: parsed.data.promptText,
+    compiled_template_json: compiledTemplate.compiledTemplateJson,
+    compiled_template_version: compiledTemplate.compiledTemplateVersion,
+    compiled_template_hash: compiledTemplate.compiledTemplateHash,
   })
 
   await supabase.from('audit_logs').insert({

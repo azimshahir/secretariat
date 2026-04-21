@@ -4,7 +4,7 @@ import { useTransition } from 'react'
 import { Building2, Factory, Fuel, Heart, HelpCircle, Loader2, Search } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { detectIndustry } from '@/actions/secretariat-wizard'
+import { postJson } from '@/lib/api/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { IndustryCategory } from '@/lib/supabase/types'
@@ -31,10 +31,15 @@ export function StepIndustry({ state, onChange }: StepIndustryProps) {
     if (!state.customIndustry.trim()) { toast.error('Please enter your industry first'); return }
     startTransition(async () => {
       try {
-        const detected = await detectIndustry(state.customIndustry)
-        onChange({ detectedIndustry: detected })
-        toast.success(`Detected: ${detected}`)
-      } catch { toast.error('Failed to detect industry') }
+        const result = await postJson<{ ok: true; industry: string }>(
+          '/api/secretariat-wizard/detect-industry',
+          { customName: state.customIndustry },
+        )
+        onChange({ detectedIndustry: result.industry })
+        toast.success(`Detected: ${result.industry}`)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to detect industry')
+      }
     })
   }
 

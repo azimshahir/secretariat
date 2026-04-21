@@ -1,6 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { Download, FileText, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib'
@@ -23,16 +27,33 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { getTemplateSignedUrl } from '@/actions/itinerary-template'
-import { generateItineraryContent } from '@/actions/generate-itinerary'
+import { postJson } from '@/lib/api/client'
 import type { Agenda } from '@/lib/supabase/types'
-import { buildDocxFromTemplate, fetchTemplateBuffer } from './docx-template-engine'
+import {
+  buildDocxFromTemplate,
+  fetchTemplateBuffer,
+  type TemplateCellContent,
+  type TemplateParagraphData,
+} from './docx-template-engine'
 import { DownloadMomButton } from './download-mom-button'
 import { MeetingPackBuilder } from './meeting-pack-builder'
 import type { MeetingPackConfig } from './meeting-pack-model'
 import type { TemplateGroup, TemplateSection } from './settings-template-model'
+import {
+  isMatterArisingSectionTitle,
+  TEMPLATE_SECTION_IDS,
+  toVisibleTemplateSectionTitle,
+} from './settings-template-model'
 
 type ExportFormat = 'pdf' | 'docx'
+
+interface MatterArisingStructuredRow {
+  no: string
+  meeting: string
+  currentDevelopment: string
+  mattersArising: TemplateParagraphData[]
+  actionBy: TemplateParagraphData[]
+}
 
 interface Props {
   groups: TemplateGroup[]
@@ -40,8 +61,6 @@ interface Props {
   meetingTitle: string
   meetingDate: string
   existingAgendas: Agenda[]
-  committeeId: string | null
-  meetingStatus: string
   initialMeetingPackConfig: MeetingPackConfig
 }
 
@@ -53,14 +72,11 @@ function toSafeFileName(name: string) {
 }
 
 function toDisplaySectionTitle(title: string) {
-  return title.trim().toLowerCase() === 'summary of decision'
-    ? 'Matter Arising for all'
-    : title
+  return toVisibleTemplateSectionTitle(title)
 }
 
 function isMatterArisingSection(title: string) {
-  const t = title.trim().toLowerCase()
-  return t.includes('matter arising') || t.includes('summary of decision')
+  return isMatterArisingSectionTitle(title)
 }
 
 function inferFormatFromTemplate(section: TemplateSection): ExportFormat {
@@ -73,12 +89,72 @@ function getTopTitle(meetingTitle: string, sectionTitle: string) {
   return `${prefix.toUpperCase()} ${sectionTitle.toUpperCase()}`
 }
 
-function getTableData(section: TemplateSection, agendas: Agenda[]) {
+function deriveMeetingLabel(meetingTitle: string) {
+  const normalized = meetingTitle.trim()
+  const match = normalized.match(/\b\d{1,2}\/\d{2,4}\b.*$/i)
+  return match?.[0]?.trim() || normalized
+}
+
+function getColumnWidths(columns: string[]) {
+  if (columns.length === 5) return [6, 12, 34, 16, 32]
+  if (columns.length === 3) return [15, 65, 20]
+  if (columns.length === 2) return [18, 82]
+  return columns.map(() => 100 / columns.length)
+}
+
+function toMatterArisingTemplateRows(
+  rows: string[][],
+  matterArisingRows?: MatterArisingStructuredRow[],
+): TemplateCellContent[][] {
+  if (!matterArisingRows || matterArisingRows.length === 0) return rows
+
+  return matterArisingRows.map(row => ([
+    row.no,
+    row.meeting,
+    { paragraphs: row.mattersArising },
+    { paragraphs: row.actionBy },
+    row.currentDevelopment,
+  ]))
+}
+
+function getMatterArisingTemplateData(
+  section: TemplateSection,
+  meetingTitle: string,
+  meetingDate: string,
+  rows: string[][],
+  matterArisingRows?: MatterArisingStructuredRow[],
+) {
+  const meetingLabel = deriveMeetingLabel(meetingTitle)
+  const meetingReference = meetingLabel.match(/\b\d{1,2}\/\d{2,4}\b/)?.[0] ?? meetingLabel
+  return {
+    meetingTitle,
+    meetingDate,
+    sectionTitle: toDisplaySectionTitle(section.title),
+    meetingReference,
+    mode: 'matter-arising' as const,
+    rows: toMatterArisingTemplateRows(rows, matterArisingRows),
+  }
+}
+
+function getTableData(section: TemplateSection, agendas: Agenda[], meetingTitle: string) {
   const normalized = toDisplaySectionTitle(section.title).trim().toLowerCase()
-  if (normalized === 'agenda' || normalized === 'matter arising for all') {
+  if (normalized === 'agenda') {
     return {
       columns: ['Agenda No.', 'Agenda Item', 'Owner'],
       rows: agendas.map(agenda => [agenda.agenda_no, agenda.title, agenda.presenter ?? '']),
+    }
+  }
+  if (normalized === 'matter arising') {
+    const meetingLabel = deriveMeetingLabel(meetingTitle)
+    return {
+      columns: ['No.', 'Meeting', 'Matters Arising', 'Action By', 'Current Development'],
+      rows: agendas.map((agenda, index) => [
+        String(index + 1),
+        meetingLabel,
+        agenda.title,
+        '',
+        '',
+      ]),
     }
   }
   if (normalized === 'presenter list') {
@@ -94,21 +170,30 @@ function getTableData(section: TemplateSection, agendas: Agenda[]) {
 }
 
 function wrapText(text: string, maxWidth: number, font: PDFFont, size: number) {
-  const words = String(text ?? '').split(/\s+/).filter(Boolean)
-  if (words.length === 0) return ['']
-
   const lines: string[] = []
-  let current = words[0]
-  for (let i = 1; i < words.length; i += 1) {
-    const next = `${current} ${words[i]}`
-    if (font.widthOfTextAtSize(next, size) <= maxWidth) {
-      current = next
+  const paragraphs = String(text ?? '').split(/\r?\n/)
+
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    const words = paragraph.split(/\s+/).filter(Boolean)
+    if (words.length === 0) {
+      lines.push('')
     } else {
+      let current = words[0]
+      for (let i = 1; i < words.length; i += 1) {
+        const next = `${current} ${words[i]}`
+        if (font.widthOfTextAtSize(next, size) <= maxWidth) {
+          current = next
+        } else {
+          lines.push(current)
+          current = words[i]
+        }
+      }
       lines.push(current)
-      current = words[i]
     }
-  }
-  lines.push(current)
+    if (paragraphIndex < paragraphs.length - 1) lines.push('')
+  })
+
+  if (lines.length === 0) return ['']
   return lines
 }
 
@@ -153,9 +238,8 @@ async function buildSectionPdf(
 
   const rows = tableData.rows
 
-  const colWidths = tableData.columns.length === 3
-    ? [Math.round(TABLE_WIDTH * 0.15), Math.round(TABLE_WIDTH * 0.65), Math.round(TABLE_WIDTH * 0.20)]
-    : [Math.round(TABLE_WIDTH * 0.18), Math.round(TABLE_WIDTH * 0.82)]
+  const colWidths = getColumnWidths(tableData.columns)
+    .map(width => Math.round(TABLE_WIDTH * (width / 100)))
 
   const lineHeight = 12
   const cellPadX = 6
@@ -290,10 +374,11 @@ async function buildSectionDocx(
   })
   const navyHex = '1F3F73'
   const border = { style: BorderStyle.SINGLE, color: 'B1B1B1', size: 1 }
-  const colWidths = tableData.columns.length === 3 ? [15, 65, 20] : [18, 82]
+  const colWidths = getColumnWidths(tableData.columns)
 
   const makeCell = (text: string, opts?: { header?: boolean; widthPct?: number }) => {
     const header = opts?.header ?? false
+    const lines = String(text ?? '').split(/\r?\n/)
     return new DocxCell({
       width: {
         size: opts?.widthPct ?? 100 / tableData.columns.length,
@@ -305,18 +390,29 @@ async function buildSectionDocx(
         color: 'auto',
         fill: header ? navyHex : 'F3F3F3',
       },
-      children: [
-        new Paragraph({
+      children: lines.length > 0
+        ? lines.map(line => new Paragraph({
           alignment: AlignmentType.LEFT,
           children: [new TextRun({
-            text: text || '',
+            text: line || '',
             bold: header,
             color: header ? 'FFFFFF' : '303030',
             size: 22,
             font: 'Calibri',
           })],
-        }),
-      ],
+        }))
+        : [
+          new Paragraph({
+            alignment: AlignmentType.LEFT,
+            children: [new TextRun({
+              text: '',
+              bold: header,
+              color: header ? 'FFFFFF' : '303030',
+              size: 22,
+              font: 'Calibri',
+            })],
+          }),
+        ],
     })
   }
 
@@ -373,13 +469,11 @@ export function ItinerariesTab({
   meetingTitle,
   meetingDate,
   existingAgendas,
-  committeeId,
-  meetingStatus,
   initialMeetingPackConfig,
 }: Props) {
   const sections = useMemo(() => {
     const itineraryGroup = groups.find(group => group.id === 'itineraries')
-    return itineraryGroup?.sections ?? []
+    return (itineraryGroup?.sections ?? []).filter(section => section.id !== TEMPLATE_SECTION_IDS.extractMinute)
   }, [groups])
 
   const allDone = useMemo(() => {
@@ -391,6 +485,8 @@ export function ItinerariesTab({
   const [formatBySection, setFormatBySection] = useState<Record<string, ExportFormat>>({})
   const [instructionBySection, setInstructionBySection] = useState<Record<string, string>>({})
   const [momInstruction, setMomInstruction] = useState('')
+
+  const isStepTwoDone = allDone
 
   useEffect(() => {
     setFormatBySection(previous => {
@@ -405,13 +501,11 @@ export function ItinerariesTab({
   const getFormat = (section: TemplateSection) => formatBySection[section.id] ?? inferFormatFromTemplate(section)
 
   async function resolveTemplateDocx(section: TemplateSection): Promise<ArrayBuffer | null> {
-    // Priority 1: in-memory file (just uploaded, not yet reloaded)
-    if (section.templateFile) {
-      return section.templateFile.arrayBuffer()
-    }
-    // Priority 2: persisted in Supabase Storage
     if (section.templateStoragePath) {
-      const signedUrl = await getTemplateSignedUrl(section.templateStoragePath)
+      const { signedUrl } = await postJson<{ ok: true; signedUrl: string }>(
+        `/api/meeting/${meetingId}/template-url`,
+        { storagePath: section.templateStoragePath },
+      )
       return fetchTemplateBuffer(signedUrl)
     }
     return null
@@ -426,33 +520,55 @@ export function ItinerariesTab({
     try {
       // AI-enhanced content (fallback to raw DB data if AI fails)
       let tableData: { columns: string[]; rows: string[][] }
+      let matterArisingRows: MatterArisingStructuredRow[] | undefined
       const extraInstruction = instructionBySection[section.id]?.trim() ?? ''
       const fullPrompt = extraInstruction
         ? `${section.prompt}\n\nADDITIONAL INSTRUCTIONS FROM USER:\n${extraInstruction}`
         : section.prompt
       try {
-        const result = await generateItineraryContent(meetingId, section.title, fullPrompt)
+        const result = await postJson<{
+          ok: true
+          columns: string[]
+          rows: string[][]
+          templateUrl: string | null
+          meetingTitle: string
+          formattedDate: string
+          matterArisingRows?: MatterArisingStructuredRow[]
+        }>(`/api/meeting/${meetingId}/itinerary`, {
+          sectionTitle: section.title,
+          sectionPrompt: fullPrompt,
+        })
+        matterArisingRows = result.matterArisingRows
         tableData = {
           columns: result.columns,
-          rows: result.rows.length > 0 ? result.rows : [['—', 'No data available', '—']],
+          rows: result.rows.length > 0
+            ? result.rows
+            : [result.columns.map((_, index) => (index === 0 ? '—' : index === 1 ? 'No data available' : ''))],
         }
       } catch {
-        const raw = getTableData(section, existingAgendas)
+        const raw = getTableData(section, existingAgendas, meetingTitle)
         tableData = {
           columns: raw.columns,
-          rows: raw.rows.length > 0 ? raw.rows : [['—', 'No data available', '—']],
+          rows: raw.rows.length > 0
+            ? raw.rows
+            : [raw.columns.map((_, index) => (index === 0 ? '—' : index === 1 ? 'No data available' : ''))],
         }
       }
 
       if (selectedFormat === 'docx') {
         const templateBlob = await resolveTemplateDocx(section)
         if (templateBlob) {
-          const blob = await buildDocxFromTemplate(templateBlob, {
-            meetingTitle,
-            meetingDate,
-            sectionTitle: displayTitle,
-            rows: tableData.rows,
-          })
+          const blob = await buildDocxFromTemplate(
+            templateBlob,
+            isMatterArisingSection(section.title)
+              ? getMatterArisingTemplateData(section, meetingTitle, meetingDate, tableData.rows, matterArisingRows)
+              : {
+                  meetingTitle,
+                  meetingDate,
+                  sectionTitle: displayTitle,
+                  rows: tableData.rows,
+                },
+          )
           downloadBlob(filename, blob)
         } else {
           const blob = await buildSectionDocx(displayTitle, meetingTitle, meetingDate, tableData)
@@ -555,8 +671,8 @@ export function ItinerariesTab({
                   <div>
                     <p className="font-medium">{toDisplaySectionTitle(section.title)}</p>
                     <p className="text-xs text-zinc-500">
-                      {isMatterArisingSection(section.title) && meetingStatus !== 'finalized'
-                        ? 'Submit finalized MoM first to enable download'
+                      {isMatterArisingSection(section.title) && !isStepTwoDone
+                        ? 'Only available after Step 2 is completed.'
                         : section.noTemplateNeeded ? 'No Template Needed' : (section.templateFileName ?? 'No template uploaded')}
                     </p>
                   </div>
@@ -586,7 +702,7 @@ export function ItinerariesTab({
                       disabled={
                         isDownloadingAll
                         || downloadingSectionId === section.id
-                        || (isMatterArisingSection(section.title) && meetingStatus !== 'finalized')
+                        || (isMatterArisingSection(section.title) && !isStepTwoDone)
                       }
                     >
                       {downloadingSectionId === section.id ? (

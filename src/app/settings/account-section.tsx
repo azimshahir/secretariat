@@ -3,11 +3,11 @@
 import { useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import { Pencil, Loader2, X, Check } from 'lucide-react'
+import { postFormData } from '@/lib/api/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { updateProfile, updateEmail, updatePassword } from './actions'
 
 function EditableRow({
   label,
@@ -48,10 +48,13 @@ export function AccountSection({ fullName, email }: { fullName: string; email: s
         <EditableRow label="Display Name" value={fullName}>
           {({ close }) => (
             <form
-              action={(fd) => startNameTransition(async () => {
+              onSubmit={(event) => {
+                event.preventDefault()
+                const fd = new FormData(event.currentTarget)
+                startNameTransition(async () => {
                 try { await updateProfile(fd); toast.success('Name updated'); close() }
-                catch { toast.error('Failed to update name') }
-              })}
+                catch (error) { toast.error(error instanceof Error ? error.message : 'Failed to update name') }
+              })}}
               className="flex items-end gap-2"
             >
               <div className="flex-1 space-y-1">
@@ -71,10 +74,13 @@ export function AccountSection({ fullName, email }: { fullName: string; email: s
         <EditableRow label="Email" value={email}>
           {({ close }) => (
             <form
-              action={(fd) => startEmailTransition(async () => {
+              onSubmit={(event) => {
+                event.preventDefault()
+                const fd = new FormData(event.currentTarget)
+                startEmailTransition(async () => {
                 try { await updateEmail(fd); toast.success('Confirmation email sent — check your inbox'); close() }
-                catch { toast.error('Failed to update email') }
-              })}
+                catch (error) { toast.error(error instanceof Error ? error.message : 'Failed to update email') }
+              })}}
               className="flex items-end gap-2"
             >
               <div className="flex-1 space-y-1">
@@ -94,10 +100,13 @@ export function AccountSection({ fullName, email }: { fullName: string; email: s
         {showPwForm ? (
           <div className="space-y-2 py-3">
             <form
-              action={(fd) => startPwTransition(async () => {
+              onSubmit={(event) => {
+                event.preventDefault()
+                const fd = new FormData(event.currentTarget)
+                startPwTransition(async () => {
                 try { await updatePassword(fd); toast.success('Password updated'); setShowPwForm(false) }
                 catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to update password') }
-              })}
+              })}}
               className="space-y-2"
             >
               <div className="space-y-1">
@@ -130,4 +139,16 @@ export function AccountSection({ fullName, email }: { fullName: string; email: s
       </CardContent>
     </Card>
   )
+}
+
+async function updateProfile(formData: FormData) {
+  await postFormData<{ ok: true }>('/api/settings/profile', formData)
+}
+
+async function updateEmail(formData: FormData) {
+  await postFormData<{ ok: true }>('/api/settings/email', formData)
+}
+
+async function updatePassword(formData: FormData) {
+  await postFormData<{ ok: true }>('/api/settings/password', formData)
 }

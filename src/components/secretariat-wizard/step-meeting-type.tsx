@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useTransition } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { suggestMeetingTypes } from '@/actions/secretariat-wizard'
+import { postJson } from '@/lib/api/client'
 import type { PersonaTemplate } from '@/lib/ai/persona-templates'
 import { SECRETARIAT_FAMILIES, SECRETARIAT_TEMPLATES } from '@/lib/secretariat-templates'
 import type { WizardState } from './wizard-types'
@@ -20,7 +20,7 @@ export function StepMeetingType({ state, onChange, personaTemplates }: StepMeeti
   const isBanking = state.industry === 'Banking'
   const isOthers = state.industry === 'Others'
   const [isPending, startTransition] = useTransition()
-  const [hasFetched, setHasFetched] = useState(false)
+  const hasFetchedRef = useRef(false)
 
   const categoryTemplates = useMemo(
     () => (state.industry && !isBanking ? personaTemplates.filter(t => t.category === state.industry) : []),
@@ -33,16 +33,28 @@ export function StepMeetingType({ state, onChange, personaTemplates }: StepMeeti
   )
 
   useEffect(() => {
-    if (isOthers && !hasFetched && state.customIndustry.trim()) {
-      setHasFetched(true)
+    if (isOthers && !hasFetchedRef.current && state.customIndustry.trim()) {
+      hasFetchedRef.current = true
       startTransition(async () => {
         try {
-          const suggestions = await suggestMeetingTypes(state.customIndustry)
-          onChange({ suggestedMeetingTypes: suggestions })
-        } catch { toast.error('Failed to suggest meeting types') }
+          const result = await postJson<{
+            ok: true
+            suggestions: { name: string; description: string }[]
+          }>('/api/secretariat-wizard/suggest-meeting-types', {
+            industry: state.customIndustry,
+          })
+          onChange({ suggestedMeetingTypes: result.suggestions })
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? error.message : 'Failed to suggest meeting types',
+          )
+        }
       })
     }
-  }, [isOthers, state.customIndustry, hasFetched, onChange])
+    if (!isOthers) {
+      hasFetchedRef.current = false
+    }
+  }, [isOthers, state.customIndustry, onChange])
 
   return (
     <div className="space-y-5">

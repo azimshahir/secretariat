@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { getCanonicalCurrentMinuteForAgendaId } from '@/lib/meeting-generation/current-minute'
 import { createClient } from '@/lib/supabase/server'
 
 const SECTION_STYLES = {
@@ -34,12 +35,17 @@ export default async function SummaryPage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: minute } = await supabase
-    .from('minutes')
-    .select('summary_paper, summary_discussion, summary_heated')
-    .eq('agenda_id', agendaId)
-    .eq('is_current', true)
-    .single()
+  const minute = await getCanonicalCurrentMinuteForAgendaId<{
+    id: string
+    agenda_id: string
+    summary_paper: string | null
+    summary_discussion: string | null
+    summary_heated: string | null
+  }>({
+    supabase,
+    agendaId,
+    extraColumns: 'summary_paper, summary_discussion, summary_heated',
+  })
 
   const paper = minute?.summary_paper
   const discussion = minute?.summary_discussion

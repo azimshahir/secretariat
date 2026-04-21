@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 
 import { AppShell } from '@/components/app-shell'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
+import { getActiveBuildId } from '@/lib/app-build'
 import { SemanticMapper } from './semantic-mapper'
 
 export default async function MapPage({
@@ -46,6 +47,7 @@ export default async function MapPage({
       activeCommitteeId={meeting.committee_id ?? undefined}
       containerClassName="max-w-[1700px] gap-4"
       mainClassName="px-3 py-3 md:px-4 md:py-4 xl:px-5 xl:py-5"
+      initialBuildId={getActiveBuildId()}
     >
       <div className="min-h-[calc(100vh-8.75rem)] overflow-hidden rounded-[32px] border border-border/70 bg-white/94 shadow-[0_28px_80px_-44px_rgba(15,23,42,0.45)] backdrop-blur">
         <SemanticMapper

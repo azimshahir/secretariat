@@ -1,28 +1,33 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import {
   ArrowRight,
-  Ban,
-  CircleAlert,
-  CircleCheck,
+  Bot,
   ClipboardList,
-  Clock3,
   FileBox,
-  Loader2,
   Sparkles,
 } from 'lucide-react'
+import {
+  DashboardPill,
+  DashboardSectionIntro,
+  DashboardSurface,
+} from '@/components/dashboard-primitives'
 import { Button } from '@/components/ui/button'
 import type { Agenda } from '@/lib/supabase/types'
-import type { CommitteeSpeaker } from '@/actions/committee-speakers'
-import type { AgendaRunState, MomGenerationState, StartMomGenerationOptions } from './use-mom-generation-queue'
+import type { CommitteeSpeaker } from '@/lib/committee-speakers'
+import type { AgendaLinkedDataState } from './agenda-linked-data'
+import type { MomGenerationState, StartMomGenerationOptions } from './use-mom-generation-queue'
 import type { MinuteEntry } from './minute-entry'
 import type { AgendaTimelineRow } from './agenda-timeline-row'
-import { DashboardChatbotSection } from './dashboard-chatbot-section'
+import { MeetingMomChatbot } from './meeting-mom-chatbot'
 import { MeetingIntelligenceDashboard } from './meeting-intelligence-dashboard'
 import { TranscriptTimelineDashboard } from './transcript-timeline-dashboard'
 import { MeetingGenerationWorkflow } from './meeting-generation-workflow'
 import { GenerateDialog } from './generate-dialog'
+import { buildAgendaPreviewRows } from './agenda-structure'
+import type { AiModelOption } from '@/lib/ai/catalog'
 import type {
   AgendaStepAnalytics,
   MeetingPackStepAnalytics,
@@ -40,13 +45,16 @@ interface DashboardTabProps {
   hasExistingTranscript: boolean
   initialMeetingRules: string
   currentMinutesByAgenda: Record<string, MinuteEntry>
+  linkedDataByAgendaId: Record<string, AgendaLinkedDataState>
   timelineRows: AgendaTimelineRow[]
   onTimelineRowsChange: (rows: AgendaTimelineRow[]) => void
   generationState: MomGenerationState
   onStartGeneration: (options: StartMomGenerationOptions) => Promise<boolean>
-  onCancelGeneration: () => void
   activeStep: SetupWorkflowStepId
   onStepChange: (stepId: SetupWorkflowStepId) => void
+  skippedAgendaIds: string[]
+  hasDraftProgress: boolean
+  onOpenDraftProgress: () => void
   onOpenAgendaTab: () => void
   onOpenMeetingPackTab: () => void
   agendaAnalytics: AgendaStepAnalytics
@@ -54,6 +62,11 @@ interface DashboardTabProps {
   autoStepStatuses: Record<SetupWorkflowStepId, StepStatus>
   stepStatuses: Record<SetupWorkflowStepId, StepStatus>
   onStepStatusChange: (stepId: SetupWorkflowStepId, status: StepStatus) => void
+  isAgendaLockPending: boolean
+  onLockAgenda: () => void
+  onUnlockAgenda: () => void
+  askModelOptions: AiModelOption[]
+  defaultAskModelId: string
 }
 
 const STEPS: Array<{
@@ -65,19 +78,19 @@ const STEPS: Array<{
   {
     id: 'agenda',
     title: 'Edit Agenda',
-    description: 'Review the agenda structure and the titles that have already been entered.',
+    description: 'Review structure, planned timing, and section titles.',
     icon: ClipboardList,
   },
   {
     id: 'meeting-pack',
     title: 'Generate Meeting Pack',
-    description: 'Review the attached PDFs before building the meeting pack.',
+    description: 'Check supporting PDFs before building the pack.',
     icon: FileBox,
   },
   {
     id: 'recording',
     title: 'Meeting Recording / Analysis',
-    description: 'Attach the transcript or recording, then continue with analysis and generation.',
+    description: 'Attach transcript input, then run analysis and generation.',
     icon: Sparkles,
   },
 ] as const
@@ -86,48 +99,6 @@ function getNextStepId(stepId: SetupWorkflowStepId): SetupWorkflowStepId {
   if (stepId === 'agenda') return 'meeting-pack'
   if (stepId === 'meeting-pack') return 'recording'
   return 'recording'
-}
-
-const QUEUE_BADGE_STYLES: Record<AgendaRunState, string> = {
-  pending: 'border-zinc-200 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
-  running: 'border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300',
-  done: 'border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
-  failed: 'border-red-200 bg-red-100 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300',
-  skipped: 'border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
-}
-
-function QueueStateBadge({ state }: { state: AgendaRunState }) {
-  if (state === 'running') {
-    return (
-      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${QUEUE_BADGE_STYLES[state]}`}>
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Loading...
-      </span>
-    )
-  }
-
-  const Icon = state === 'done'
-    ? CircleCheck
-    : state === 'failed'
-      ? CircleAlert
-      : state === 'skipped'
-        ? Ban
-        : Clock3
-
-  const label = state === 'done'
-    ? 'Done'
-    : state === 'failed'
-      ? 'Failed'
-      : state === 'skipped'
-        ? 'Skipped'
-        : 'Pending'
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${QUEUE_BADGE_STYLES[state]}`}>
-      <Icon className="h-3 w-3" />
-      {label}
-    </span>
-  )
 }
 
 function SummaryMetric({
@@ -143,12 +114,12 @@ function SummaryMetric({
     ? 'border-emerald-200 bg-emerald-50/80'
     : tone === 'warning'
       ? 'border-amber-200 bg-amber-50/80'
-      : 'border-zinc-200 bg-zinc-50/80'
+      : 'border-border/70 bg-secondary/25'
 
   return (
-    <div className={`rounded-2xl border px-4 py-4 ${toneClass}`}>
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold tracking-tight text-zinc-950">{value}</p>
+    <div className={`rounded-[16px] border px-3 py-2.5 ${toneClass}`}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-[1.08rem] font-semibold tracking-[-0.04em] text-foreground">{value}</p>
     </div>
   )
 }
@@ -169,31 +140,74 @@ function StepStatusPane({
   const isManual = value !== autoValue
 
   return (
-    <div className="space-y-2" onClick={event => event.stopPropagation()}>
-      <div className={`inline-flex rounded-full border p-1 shadow-sm ${
+    <div className="space-y-1.5" onClick={event => event.stopPropagation()}>
+      <div className={`inline-flex rounded-full border p-0.5 shadow-sm ${
         isActive
-          ? 'border-white/20 bg-white/12'
-          : 'border-zinc-200 bg-white'
+          ? 'border-primary/15 bg-white/85'
+          : 'border-border/70 bg-white'
       }`}>
         {(['pending', 'done'] as const).map(option => (
           <button
             key={option}
             type="button"
             onClick={() => onChange(stepId, option)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
               value === option
                 ? 'bg-primary text-primary-foreground shadow-sm'
-                : isActive
-                  ? 'text-white/78 hover:bg-white/12 hover:text-white'
-                  : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700'
+                : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
             }`}
           >
             {option === 'done' ? 'Done' : 'Pending'}
           </button>
         ))}
       </div>
-      <p className={`text-[11px] ${isActive ? 'text-white/60' : 'text-zinc-400'}`}>
+      <p className="text-[9px] text-muted-foreground">
         {isManual ? 'Saved locally' : 'Auto status'}
+      </p>
+    </div>
+  )
+}
+
+function AgendaStepStatusPane({
+  value,
+  isPending,
+  disableDone,
+  onChange,
+}: {
+  value: StepStatus
+  isPending: boolean
+  disableDone: boolean
+  onChange: (status: StepStatus) => void
+}) {
+  return (
+    <div className="space-y-1.5" onClick={event => event.stopPropagation()}>
+      <div className="inline-flex rounded-full border border-border/70 bg-white p-0.5 shadow-sm">
+        {(['pending', 'done'] as const).map(option => {
+          const isSelected = value === option
+          const isDisabled = isPending || (option === 'done' && disableDone)
+
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => {
+                if (isDisabled) return
+                onChange(option)
+              }}
+              disabled={isDisabled}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                isSelected
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+              }`}
+            >
+              {option === 'done' ? 'Done' : 'Pending'}
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-[9px] text-muted-foreground">
+        {isPending ? 'Updating...' : 'Shared status'}
       </p>
     </div>
   )
@@ -207,6 +221,9 @@ function WorkflowStepCard({
   autoStatus,
   onStepSelect,
   onStatusChange,
+  isAgendaLockPending,
+  onAgendaStatusChange,
+  disableAgendaDone,
 }: {
   step: typeof STEPS[number]
   index: number
@@ -215,6 +232,9 @@ function WorkflowStepCard({
   autoStatus: StepStatus
   onStepSelect: (stepId: SetupWorkflowStepId) => void
   onStatusChange: (stepId: SetupWorkflowStepId, status: StepStatus) => void
+  isAgendaLockPending?: boolean
+  onAgendaStatusChange?: (status: StepStatus) => void
+  disableAgendaDone?: boolean
 }) {
   const Icon = step.icon
 
@@ -229,104 +249,248 @@ function WorkflowStepCard({
           onStepSelect(step.id)
         }
       }}
-      className={`rounded-[24px] border p-5 text-left transition-all ${
+      className={`rounded-[20px] border p-3.5 text-left transition-all ${
         isActive
-          ? 'border-primary/40 bg-[linear-gradient(135deg,rgba(8,98,98,1),rgba(11,127,117,1)_58%,rgba(20,184,166,0.92))] text-white shadow-[0_24px_48px_-32px_rgba(8,98,98,0.48)]'
-          : 'border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-sm'
+          ? 'border-primary/24 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(235,255,252,0.96)_58%,rgba(220,252,231,0.88))] shadow-[0_18px_46px_-34px_rgba(8,98,98,0.26)]'
+          : 'border-border/70 bg-white/94 hover:border-primary/18 hover:bg-primary/5'
       }`}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-4">
-          <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${
-            isActive ? 'bg-white/14 text-white' : 'bg-zinc-100 text-zinc-700'
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-2.5">
+          <div className={`flex h-8 w-8 items-center justify-center rounded-[14px] ${
+            isActive ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground'
           }`}>
-            <Icon className="h-5 w-5" />
+            <Icon className="h-4 w-4" />
           </div>
-          <div className="space-y-2">
-            <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${
-              isActive ? 'text-white/60' : 'text-zinc-500'
-            }`}>
+          <div className="space-y-1">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               Step {index + 1}
             </p>
-            <h3 className="text-lg font-semibold tracking-tight">{step.title}</h3>
-            <p className={`text-sm leading-6 ${
-              isActive ? 'text-white/75' : 'text-zinc-500'
-            }`}>
+            <h3 className="text-[15px] font-semibold tracking-[-0.03em] text-foreground">{step.title}</h3>
+            <p className="text-[12px] leading-[1.15rem] text-muted-foreground">
               {step.description}
             </p>
           </div>
         </div>
 
-        <StepStatusPane
-          stepId={step.id}
-          value={status}
-          autoValue={autoStatus}
-          isActive={isActive}
-          onChange={onStatusChange}
-        />
+        {step.id === 'agenda' ? (
+          <AgendaStepStatusPane
+            value={status}
+            isPending={Boolean(isAgendaLockPending)}
+            disableDone={Boolean(disableAgendaDone)}
+            onChange={nextStatus => onAgendaStatusChange?.(nextStatus)}
+          />
+        ) : (
+          <StepStatusPane
+            stepId={step.id}
+            value={status}
+            autoValue={autoStatus}
+            isActive={isActive}
+            onChange={onStatusChange}
+          />
+        )}
       </div>
     </article>
   )
 }
 
+function LockedDashboardPanel({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string
+  title: string
+  description: string
+}) {
+  return (
+    <DashboardSurface tone="muted" padding="sm" className="text-center">
+      <div className="mx-auto max-w-2xl space-y-2.5 py-1">
+        <DashboardPill>{eyebrow}</DashboardPill>
+        <div>
+          <h4 className="font-display text-[1.08rem] font-semibold tracking-[-0.04em] text-foreground">{title}</h4>
+          <p className="mx-auto mt-1.5 text-[13px] leading-5 text-muted-foreground">{description}</p>
+        </div>
+      </div>
+    </DashboardSurface>
+  )
+}
+
+function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
+  if (!ref) return
+  if (typeof ref === 'function') {
+    ref(value)
+    return
+  }
+  ;(ref as React.MutableRefObject<T | null>).current = value
+}
+
+function StepThreeReveal({
+  children,
+  delay = 0,
+  sectionRef,
+}: {
+  children: React.ReactNode
+  delay?: number
+  sectionRef?: React.Ref<HTMLDivElement>
+}) {
+  const prefersReducedMotion = useReducedMotion()
+
+  return (
+    <motion.section
+      ref={(node) => assignRef(sectionRef, node)}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 18 }}
+      animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={{
+        duration: prefersReducedMotion ? 0 : 0.22,
+        delay: prefersReducedMotion ? 0 : delay,
+        ease: [0.22, 1, 0.36, 1],
+      }}
+      className="space-y-0"
+    >
+      {children}
+    </motion.section>
+  )
+}
+
+function ChatbotPeekCard({
+  isUnlocked,
+  minutesCount,
+  hasTranscript,
+  onOpen,
+}: {
+  isUnlocked: boolean
+  minutesCount: number
+  hasTranscript: boolean
+  onOpen: () => void
+}) {
+  if (!isUnlocked) {
+    return (
+      <DashboardSurface tone="muted" padding="sm">
+        <DashboardSectionIntro
+          eyebrow="MoM chatbot"
+          title="Chatbot preview unlocks after MoM generation"
+          description="Once minutes are generated, this dashboard reveals a meeting-wide chatbot teaser before the full chat lane below."
+          compact
+          actions={(
+            <>
+              <DashboardPill tone={hasTranscript ? 'success' : 'warning'}>
+                Transcript {hasTranscript ? 'ready' : 'missing'}
+              </DashboardPill>
+              <DashboardPill>{minutesCount} minute{minutesCount === 1 ? '' : 's'}</DashboardPill>
+            </>
+          )}
+        />
+      </DashboardSurface>
+    )
+  }
+
+  return (
+      <DashboardSurface tone="accent" padding="sm">
+      <DashboardSectionIntro
+        eyebrow="MoM chatbot"
+        title="Your meeting-wide chatbot is ready"
+        description="Ask about decisions, action items, disagreements, or anything across the full transcript and all generated minutes."
+        compact
+        actions={(
+          <Button onClick={onOpen} className="gap-2 rounded-full px-4">
+            <Bot className="h-4 w-4" />
+            Open MoM Chatbot
+          </Button>
+        )}
+      />
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        <DashboardPill tone="success">
+          {hasTranscript ? 'Whole transcript attached' : 'Transcript unavailable'}
+        </DashboardPill>
+        <DashboardPill>{minutesCount} generated minute{minutesCount === 1 ? '' : 's'}</DashboardPill>
+        <DashboardPill>Ask-only mode</DashboardPill>
+      </div>
+    </DashboardSurface>
+  )
+}
+
 function AgendaStepPanel({
   analytics,
+  agendas,
   onOpenAgendaTab,
 }: {
   analytics: AgendaStepAnalytics
+  agendas: Agenda[]
   onOpenAgendaTab: () => void
 }) {
+  const previewRows = useMemo(() => buildAgendaPreviewRows(agendas), [agendas])
+  const rowsWithPlannedTime = previewRows.filter(row => row.plannedTime.trim().length > 0).length
+  const rowsWithPresenter = previewRows.filter(row => row.presenter.trim().length > 0).length
+
   return (
-    <section className="space-y-6 rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Step 1</p>
+    <DashboardSurface padding="md">
+      <DashboardSectionIntro
+        eyebrow="Step 1"
+        title="Edit Agenda"
+        description="Review the current agenda structure here, then open the Agenda tab to edit rows before using the shared Pending / Done control above."
+        actions={(
+          <Button variant="outline" onClick={onOpenAgendaTab} className="gap-2 rounded-[12px] self-start">
+            Open Agenda Tab
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        )}
+      />
+
+      <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
+        <SummaryMetric label="Agenda Headers" value={analytics.totalAgendaHeaders} />
+        <SummaryMetric label="Rows With Time" value={rowsWithPlannedTime} tone={rowsWithPlannedTime > 0 ? 'success' : 'default'} />
+        <SummaryMetric label="Rows With Presenter" value={rowsWithPresenter} tone={rowsWithPresenter > 0 ? 'success' : 'default'} />
+      </div>
+
+      <div className="mt-3 rounded-[18px] border border-border/70 bg-secondary/20 p-3.5">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-2xl font-semibold tracking-tight text-zinc-950">Edit Agenda</h3>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-              This dashboard shows how many agenda headers have been created and how many titles/subitems have been entered so far.
-            </p>
+            <h4 className="text-[13px] font-semibold text-foreground">Agenda preview</h4>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">Read-only view of the current agenda order, planned time, and presenter fields.</p>
           </div>
         </div>
 
-        <Button onClick={onOpenAgendaTab} className="gap-2 self-start">
-          Edit Agenda
-          <ArrowRight className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryMetric label="Agenda" value={analytics.totalAgendaHeaders} />
-        <SummaryMetric label="Titles So Far" value={analytics.totalTitles} />
-        <SummaryMetric label="Headers With Titles" value={analytics.headersWithTitles} />
-      </div>
-
-        <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h4 className="text-sm font-semibold text-zinc-950">Agenda breakdown</h4>
-              <p className="mt-1 text-sm text-zinc-500">Number of titles under each agenda header.</p>
-            </div>
-          </div>
-
-        {analytics.sections.length === 0 ? (
-          <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-white px-4 py-6 text-sm text-zinc-500">
+        {previewRows.length === 0 ? (
+          <div className="mt-3 rounded-[16px] border border-dashed border-border bg-white px-3.5 py-5 text-[12px] text-muted-foreground">
             No agenda structure has been created yet. Open the Agenda tab to start adding headers and titles.
           </div>
         ) : (
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {analytics.sections.map(section => (
-              <div key={section.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-4">
-                <p className="text-base font-semibold text-zinc-950">{section.title}</p>
-                <p className="mt-2 text-sm text-zinc-500">
-                  {section.itemCount} {section.itemCount === 1 ? 'item' : 'items'}
-                </p>
-              </div>
-            ))}
+          <div className="mt-3 overflow-x-auto rounded-[16px] border border-border/70 bg-white">
+            <div className="grid grid-cols-[78px_118px_minmax(0,1fr)_160px] gap-2.5 border-b border-border/70 bg-secondary/20 px-3.5 py-2 text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              <span>No.</span>
+              <span>Time</span>
+              <span>Agenda Item</span>
+              <span>Presenter</span>
+            </div>
+            <div className="divide-y divide-border/60">
+              {previewRows.map(row => (
+                <div
+                  key={row.id}
+                  className={`grid grid-cols-[78px_118px_minmax(0,1fr)_160px] gap-2.5 px-3.5 py-2.5 text-[12px] ${
+                    row.level === 'section' ? 'bg-secondary/20' : 'bg-white'
+                  }`}
+                >
+                  <span className={`tabular-nums ${row.level === 'section' ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
+                    {row.agendaNo}
+                  </span>
+                  <span className={row.plannedTime ? 'text-foreground' : 'text-muted-foreground'}>
+                    {row.plannedTime || 'TBC'}
+                  </span>
+                  <span className={`${row.level === 'section' ? 'font-semibold text-foreground' : 'pl-4 text-foreground'}`}>
+                    {row.title}
+                  </span>
+                  <span className={row.presenter ? 'text-foreground' : 'text-muted-foreground'}>
+                    {row.presenter || 'Not assigned'}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
-    </section>
+    </DashboardSurface>
   )
 }
 
@@ -338,55 +502,50 @@ function MeetingPackStepPanel({
   onOpenMeetingPackTab: () => void
 }) {
   return (
-    <section className="space-y-6 rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Step 2</p>
-          <div>
-            <h3 className="text-2xl font-semibold tracking-tight text-zinc-950">Generate Meeting Pack</h3>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-              Review the current PDF attachment coverage from your agendas before opening the meeting pack builder.
-            </p>
-          </div>
-        </div>
+    <DashboardSurface padding="md">
+      <DashboardSectionIntro
+        eyebrow="Step 2"
+        title="Generate Meeting Pack"
+        description="Review the current PDF attachment coverage from your agendas before opening the meeting pack builder."
+        actions={(
+          <Button onClick={onOpenMeetingPackTab} className="gap-2 rounded-[12px] self-start">
+            Generate Meeting Pack
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        )}
+      />
 
-        <Button onClick={onOpenMeetingPackTab} className="gap-2 self-start">
-          Generate Meeting Pack
-          <ArrowRight className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
         <SummaryMetric label="Attached PDF" value={analytics.attachedPdfCount} tone="success" />
         <SummaryMetric label="Missing PDF" value={analytics.missingPdfCount} tone={analytics.missingPdfCount > 0 ? 'warning' : 'default'} />
         <SummaryMetric label="Marked No PDF" value={analytics.explicitNoPdfCount} />
       </div>
 
-      <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
-        <h4 className="text-sm font-semibold text-zinc-950">Missing attachments</h4>
-        <p className="mt-1 text-sm text-zinc-500">
+      <div className="mt-3 rounded-[18px] border border-border/70 bg-secondary/20 p-3.5">
+        <h4 className="text-[13px] font-semibold text-foreground">Missing attachments</h4>
+        <p className="mt-0.5 text-[12px] text-muted-foreground">
           Based on the current agenda rows. The full meeting pack builder is still available under the Itineraries tab.
         </p>
 
         {analytics.totalRows === 0 ? (
-          <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-white px-4 py-6 text-sm text-zinc-500">
+          <div className="mt-3 rounded-[16px] border border-dashed border-border bg-white px-3.5 py-5 text-[12px] text-muted-foreground">
             There are no agenda rows yet, so there are no attachments to review.
           </div>
         ) : analytics.missingItems.length === 0 ? (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-6 text-sm text-emerald-700">
+          <div className="mt-3 rounded-[16px] border border-emerald-200 bg-emerald-50 px-3.5 py-5 text-[12px] text-emerald-700">
             All agenda rows already have a PDF attachment or have been marked as &quot;No PDF&quot;.
           </div>
         ) : (
-          <div className="mt-4 space-y-3">
+          <div className="mt-3 space-y-2">
             {analytics.missingItems.map(item => (
-              <div key={item.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
+              <div key={item.id} className="rounded-[16px] border border-border/70 bg-white px-3.5 py-2.5 text-[12px] text-foreground">
                 {item.label}
               </div>
             ))}
           </div>
         )}
       </div>
-    </section>
+    </DashboardSurface>
   )
 }
 
@@ -399,12 +558,11 @@ function RecordingStepPanel({
   onTimelineRowsChange,
   generationState,
   onStartGeneration,
-  onCancelGeneration,
-  meetingTitle,
-  meetingDate,
-  committeeName,
   currentMinutesByAgenda,
-  committeeSpeakers,
+  skippedAgendaIds,
+  hasDraftProgress,
+  onOpenDraftProgress,
+  onOpenChatbot,
 }: {
   meetingId: string
   existingAgendas: Agenda[]
@@ -414,142 +572,76 @@ function RecordingStepPanel({
   onTimelineRowsChange: (rows: AgendaTimelineRow[]) => void
   generationState: MomGenerationState
   onStartGeneration: (options: StartMomGenerationOptions) => Promise<boolean>
-  onCancelGeneration: () => void
-  meetingTitle: string
-  meetingDate: string
-  committeeName: string | null
   currentMinutesByAgenda: Record<string, MinuteEntry>
-  committeeSpeakers: CommitteeSpeaker[]
+  skippedAgendaIds: string[]
+  hasDraftProgress: boolean
+  onOpenDraftProgress: () => void
+  onOpenChatbot?: () => void
 }) {
   const [isRearrangeDialogOpen, setIsRearrangeDialogOpen] = useState(false)
-  const skippedAgendaIds = existingAgendas.filter(a => a.is_skipped).map(a => a.id)
-  const hasGeneratedMom =
-    Object.keys(currentMinutesByAgenda).length > 0
-    || Object.keys(generationState.liveMinutesByAgenda).length > 0
+  const [dialogMode, setDialogMode] = useState<'generate' | 'rearrange'>('generate')
+  const hasImportedMom = Object.keys(currentMinutesByAgenda).length > 0
+  const hasDraftBatch = Boolean(generationState.activeBatch)
+  const timelineActionLabel = hasDraftBatch || hasImportedMom ? 'Regenerate Draft MoM' : 'Generate Draft MoM'
 
   return (
     <div className="space-y-6">
-      <section className="space-y-6 rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Step 3</p>
-          <div>
-            <h3 className="text-2xl font-semibold tracking-tight text-zinc-950">Meeting Recording / Analysis</h3>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
-              Attach the transcript or recording, review the timeline analysis, then run the generation flow as usual.
-            </p>
-          </div>
-        </div>
-
-        {timelineRows.length > 0 ? (
-          <TranscriptTimelineDashboard
-            rows={timelineRows}
-            onRearrange={() => setIsRearrangeDialogOpen(true)}
-            disabled={generationState.isGenerating}
-          />
-        ) : (
-          <MeetingGenerationWorkflow
-            meetingId={meetingId}
-            existingAgendas={existingAgendas}
-            hasExistingTranscript={hasExistingTranscript}
-            initialMeetingRules={initialMeetingRules}
-            skippedAgendaIds={skippedAgendaIds}
-            generationState={generationState}
-            onStartGeneration={onStartGeneration}
-            onTimelineSaved={onTimelineRowsChange}
-          />
-        )}
-
-        {generationState.queueItems.length > 0 && (
-          <div className="space-y-4 rounded-2xl border border-zinc-200 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h4 className="text-sm font-semibold">Agenda Generation Progress</h4>
-                <p className="text-xs text-zinc-500">
-                  {generationState.isGenerating
-                    ? generationState.cancelRequested
-                      ? 'Cancelling after the current agenda finishes.'
-                      : `Generating ${Math.min(generationState.completedCount + 1, generationState.totalCount)} of ${generationState.totalCount}`
-                    : `Processed ${generationState.completedCount} of ${generationState.totalCount} agenda${generationState.totalCount === 1 ? '' : 's'}.`}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onCancelGeneration}
-                disabled={!generationState.isGenerating}
-                className="gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400"
-              >
-                {generationState.cancelRequested && generationState.isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
-                {generationState.cancelRequested && generationState.isGenerating ? 'Cancelling...' : 'Cancel generation'}
+      <DashboardSurface padding="md">
+        <DashboardSectionIntro
+          eyebrow="Step 3"
+          title="Meeting Recording / Analysis"
+          description="Attach the transcript or recording, review the timeline analysis, then run the generation flow as usual."
+          actions={
+            hasDraftProgress ? (
+              <Button variant="outline" onClick={onOpenDraftProgress} className="gap-2 rounded-[12px] self-start">
+                <Sparkles className="h-4 w-4" />
+                Draft Progress
               </Button>
-            </div>
+            ) : null
+          }
+        />
 
-            <div className="space-y-2">
-              {generationState.queueItems.map(agenda => {
-                const state = generationState.runStateByAgendaId[agenda.id] ?? 'pending'
-                const error = generationState.errorByAgendaId[agenda.id]
-                return (
-                  <div key={agenda.id} className="rounded-md border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/50">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                          {agenda.agendaNo} - {agenda.title}
-                        </p>
-                      </div>
-                      <QueueStateBadge state={state} />
-                    </div>
-                    {error ? (
-                      <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-      </section>
-
-      {hasGeneratedMom ? (
-        <>
-          <MeetingIntelligenceDashboard
-            meetingId={meetingId}
-            meetingTitle={meetingTitle}
-            meetingDate={meetingDate}
-            committeeName={committeeName}
-            existingAgendas={existingAgendas}
-            timelineRows={timelineRows}
-            currentMinutesByAgenda={currentMinutesByAgenda}
-            committeeSpeakers={committeeSpeakers}
-            isUnlocked
-          />
-
-          <DashboardChatbotSection
-            meetingId={meetingId}
-            agendas={existingAgendas}
-            currentMinutesByAgenda={currentMinutesByAgenda}
-            liveMinutesByAgenda={generationState.liveMinutesByAgenda}
-            isGenerating={generationState.isGenerating}
-          />
-        </>
-      ) : (
-        <section className="rounded-[28px] border border-dashed border-zinc-300 bg-white/80 px-6 py-8 text-center shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Step 3</p>
-          <h4 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950">MoM dashboard locked until generation starts</h4>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-zinc-500">
-            The dashboard under Step 3 will only appear after the MoM has been generated. If you want to run it again, you can regenerate it from the
-            {' '}
-            <span className="font-medium text-zinc-700">Generate MoM</span>
-            {' '}tab.
-          </p>
-        </section>
-      )}
+        <div className="mt-3">
+          {timelineRows.length > 0 ? (
+            <TranscriptTimelineDashboard
+              rows={timelineRows}
+              onRearrange={() => {
+                setDialogMode('rearrange')
+                setIsRearrangeDialogOpen(true)
+              }}
+              onGenerate={() => {
+                setDialogMode('generate')
+                setIsRearrangeDialogOpen(true)
+              }}
+              onOpenChatbot={hasImportedMom ? onOpenChatbot : undefined}
+              generateLabel={timelineActionLabel}
+              disabled={generationState.isGenerating}
+            />
+          ) : (
+            <MeetingGenerationWorkflow
+              meetingId={meetingId}
+              existingAgendas={existingAgendas}
+              hasExistingTranscript={hasExistingTranscript}
+              initialMeetingRules={initialMeetingRules}
+              existingTimelineRows={timelineRows}
+              skippedAgendaIds={skippedAgendaIds}
+              generationState={generationState}
+              onStartGeneration={onStartGeneration}
+              onTimelineSaved={onTimelineRowsChange}
+            />
+          )}
+        </div>
+      </DashboardSurface>
 
       <GenerateDialog
         open={isRearrangeDialogOpen}
         onOpenChange={setIsRearrangeDialogOpen}
+        mode={dialogMode}
         meetingId={meetingId}
         existingAgendas={existingAgendas}
         hasExistingTranscript={hasExistingTranscript}
+        hasSavedTimeline={timelineRows.length > 0}
+        existingTimelineRows={timelineRows}
         initialMeetingRules={initialMeetingRules}
         skippedAgendaIds={skippedAgendaIds}
         generationState={generationState}
@@ -570,13 +662,16 @@ export function DashboardTab({
   hasExistingTranscript,
   initialMeetingRules,
   currentMinutesByAgenda,
+  linkedDataByAgendaId,
   timelineRows,
   onTimelineRowsChange,
   generationState,
   onStartGeneration,
-  onCancelGeneration,
   activeStep,
   onStepChange,
+  skippedAgendaIds,
+  hasDraftProgress,
+  onOpenDraftProgress,
   onOpenAgendaTab,
   onOpenMeetingPackTab,
   agendaAnalytics,
@@ -584,8 +679,55 @@ export function DashboardTab({
   autoStepStatuses,
   stepStatuses,
   onStepStatusChange,
+  isAgendaLockPending,
+  onLockAgenda,
+  onUnlockAgenda,
+  askModelOptions,
+  defaultAskModelId,
 }: DashboardTabProps) {
+  const chatbotSceneRef = useRef<HTMLDivElement | null>(null)
+  const [recordingView, setRecordingView] = useState<'dashboard' | 'chatbot'>('dashboard')
+  const skippedAgendaIdSet = useMemo(() => new Set(skippedAgendaIds), [skippedAgendaIds])
+  const visibleCurrentMinutesByAgenda = useMemo(
+    () => Object.fromEntries(
+      Object.entries(currentMinutesByAgenda).filter(([agendaId]) => !skippedAgendaIdSet.has(agendaId)),
+    ),
+    [currentMinutesByAgenda, skippedAgendaIdSet],
+  )
+  const visibleLinkedDataByAgendaId = useMemo(
+    () => Object.fromEntries(
+      Object.entries(linkedDataByAgendaId).filter(([agendaId]) => !skippedAgendaIdSet.has(agendaId)),
+    ),
+    [linkedDataByAgendaId, skippedAgendaIdSet],
+  )
+  const minuteAgendaIds = new Set<string>()
+
+  Object.entries(visibleCurrentMinutesByAgenda).forEach(([agendaId, minute]) => {
+    if (minute.content.trim()) {
+      minuteAgendaIds.add(agendaId)
+    }
+  })
+
+  const hasGeneratedMom = minuteAgendaIds.size > 0
+
   function handleWorkflowStatusChange(stepId: SetupWorkflowStepId, status: StepStatus) {
+    if (stepId === 'agenda') {
+      if (status === stepStatuses.agenda) {
+        if (status === 'pending') {
+          onStepChange('agenda')
+        }
+        return
+      }
+
+      if (status === 'done') {
+        onLockAgenda()
+        return
+      }
+
+      onUnlockAgenda()
+      return
+    }
+
     onStepStatusChange(stepId, status)
 
     if (status === 'done') {
@@ -596,55 +738,170 @@ export function DashboardTab({
     onStepChange(stepId)
   }
 
+  function openChatbotSection() {
+    setRecordingView('chatbot')
+    chatbotSceneRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
+
   return (
-    <div className="space-y-8">
-      <div className="grid gap-4 xl:grid-cols-3">
-        {STEPS.map((step, index) => (
-          <WorkflowStepCard
-            key={step.id}
-            step={step}
-            index={index}
-            isActive={activeStep === step.id}
-            status={stepStatuses[step.id]}
-            autoStatus={autoStepStatuses[step.id]}
-            onStepSelect={onStepChange}
-            onStatusChange={handleWorkflowStatusChange}
+    <div className="space-y-6">
+      <DashboardSurface tone="muted" padding="sm" className="border-primary/10">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <DashboardPill tone="primary" className="px-2 py-0.5 text-[10px]">Workflow strip</DashboardPill>
+            <DashboardPill className="px-2 py-0.5 text-[10px]">
+              {stepStatuses.agenda === 'done' &&
+              stepStatuses['meeting-pack'] === 'done' &&
+              stepStatuses.recording === 'done'
+                ? 'All stages complete'
+                : 'Continue the next active stage'}
+            </DashboardPill>
+          </div>
+
+          <div className="grid gap-2.5 xl:grid-cols-3">
+            {STEPS.map((step, index) => (
+              <WorkflowStepCard
+                key={step.id}
+                step={step}
+                index={index}
+                isActive={activeStep === step.id}
+                status={stepStatuses[step.id]}
+                autoStatus={autoStepStatuses[step.id]}
+                onStepSelect={onStepChange}
+                onStatusChange={handleWorkflowStatusChange}
+                isAgendaLockPending={isAgendaLockPending}
+                onAgendaStatusChange={status => handleWorkflowStatusChange('agenda', status)}
+                disableAgendaDone={step.id === 'agenda' && existingAgendas.length === 0}
+              />
+            ))}
+          </div>
+        </div>
+      </DashboardSurface>
+
+      <div className="space-y-4 pb-2">
+        {activeStep === 'agenda' ? (
+          <AgendaStepPanel
+            analytics={agendaAnalytics}
+            agendas={existingAgendas}
+            onOpenAgendaTab={onOpenAgendaTab}
           />
-        ))}
+        ) : null}
+
+        {activeStep === 'meeting-pack' ? (
+          <MeetingPackStepPanel
+            analytics={meetingPackAnalytics}
+            onOpenMeetingPackTab={onOpenMeetingPackTab}
+          />
+        ) : null}
+
+        {activeStep === 'recording' ? (
+          <StepThreeReveal delay={0.02}>
+            <RecordingStepPanel
+              meetingId={meetingId}
+              existingAgendas={existingAgendas}
+              hasExistingTranscript={hasExistingTranscript}
+              initialMeetingRules={initialMeetingRules}
+              timelineRows={timelineRows}
+              onTimelineRowsChange={onTimelineRowsChange}
+              generationState={generationState}
+              onStartGeneration={onStartGeneration}
+              currentMinutesByAgenda={visibleCurrentMinutesByAgenda}
+              skippedAgendaIds={skippedAgendaIds}
+              hasDraftProgress={hasDraftProgress}
+              onOpenDraftProgress={onOpenDraftProgress}
+              onOpenChatbot={openChatbotSection}
+            />
+          </StepThreeReveal>
+        ) : null}
+
+        {activeStep === 'recording' ? (
+          <>
+            <DashboardSurface tone="muted" padding="sm" className="border-primary/10">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="inline-flex rounded-full border border-border/70 bg-white p-0.5 shadow-sm">
+                  {(['dashboard', 'chatbot'] as const).map(view => (
+                    <button
+                      key={view}
+                      type="button"
+                      onClick={() => setRecordingView(view)}
+                      className={`rounded-full px-3 py-1 text-[12px] font-medium transition-colors ${
+                        recordingView === view
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                      }`}
+                    >
+                      {view === 'dashboard' ? 'Dashboard' : 'Chatbot'}
+                    </button>
+                  ))}
+                </div>
+
+                {hasDraftProgress ? (
+                  <Button variant="outline" onClick={onOpenDraftProgress} className="gap-2 rounded-[12px]">
+                    <Sparkles className="h-4 w-4" />
+                    Draft Progress
+                  </Button>
+                ) : null}
+              </div>
+            </DashboardSurface>
+
+            <StepThreeReveal delay={0.08}>
+              {recordingView === 'dashboard' ? (
+                hasGeneratedMom ? (
+                  <MeetingIntelligenceDashboard
+                    key={`${meetingId}:${timelineRows.length > 0 ? 'timeline' : 'no-timeline'}:${minuteAgendaIds.size}`}
+                    meetingId={meetingId}
+                    meetingTitle={meetingTitle}
+                    meetingDate={meetingDate}
+                    committeeName={committeeName}
+                    existingAgendas={existingAgendas}
+                    timelineRows={timelineRows}
+                    currentMinutesByAgenda={visibleCurrentMinutesByAgenda}
+                    linkedDataByAgendaId={visibleLinkedDataByAgendaId}
+                    committeeSpeakers={committeeSpeakers}
+                    isUnlocked
+                  />
+                ) : (
+                  <LockedDashboardPanel
+                    eyebrow="Insights"
+                    title="Meeting intelligence unlocks after minutes are generated"
+                    description="Generate the MoM first to open the discussion insights, action-item analytics, and meeting health cards for this workspace."
+                  />
+                )
+              ) : hasGeneratedMom ? (
+                <MeetingMomChatbot
+                  meetingId={meetingId}
+                  meetingTitle={meetingTitle}
+                  hasTranscript={hasExistingTranscript}
+                  minutesCount={minuteAgendaIds.size}
+                  isGenerating={generationState.isGenerating}
+                  askModelOptions={askModelOptions}
+                  defaultAskModelId={defaultAskModelId}
+                />
+              ) : (
+                <LockedDashboardPanel
+                  eyebrow="MoM Chatbot"
+                  title="Meeting-wide chat opens after the MoM exists"
+                  description="Once minutes have been generated, this dashboard will unlock a single meeting-wide chatbot that answers using the full transcript and all generated minutes."
+                />
+              )}
+            </StepThreeReveal>
+
+            {recordingView === 'dashboard' ? (
+              <StepThreeReveal delay={0.12} sectionRef={chatbotSceneRef}>
+                <ChatbotPeekCard
+                  isUnlocked={hasGeneratedMom}
+                  minutesCount={minuteAgendaIds.size}
+                  hasTranscript={hasExistingTranscript}
+                  onOpen={openChatbotSection}
+                />
+              </StepThreeReveal>
+            ) : null}
+          </>
+        ) : null}
       </div>
-
-      {activeStep === 'agenda' ? (
-        <AgendaStepPanel
-          analytics={agendaAnalytics}
-          onOpenAgendaTab={onOpenAgendaTab}
-        />
-      ) : null}
-
-      {activeStep === 'meeting-pack' ? (
-        <MeetingPackStepPanel
-          analytics={meetingPackAnalytics}
-          onOpenMeetingPackTab={onOpenMeetingPackTab}
-        />
-      ) : null}
-
-      {activeStep === 'recording' ? (
-        <RecordingStepPanel
-          meetingId={meetingId}
-          existingAgendas={existingAgendas}
-          hasExistingTranscript={hasExistingTranscript}
-          initialMeetingRules={initialMeetingRules}
-          timelineRows={timelineRows}
-          onTimelineRowsChange={onTimelineRowsChange}
-          generationState={generationState}
-          onStartGeneration={onStartGeneration}
-          onCancelGeneration={onCancelGeneration}
-          meetingTitle={meetingTitle}
-          meetingDate={meetingDate}
-          committeeName={committeeName}
-          currentMinutesByAgenda={currentMinutesByAgenda}
-          committeeSpeakers={committeeSpeakers}
-        />
-      ) : null}
     </div>
   )
 }

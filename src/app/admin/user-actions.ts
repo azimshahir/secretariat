@@ -3,9 +3,11 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import type { UserRole, PlanTier } from '@/lib/supabase/types'
+import { normalizePlanTier } from '@/lib/subscription/catalog'
+import { adjustUserCreditWallet } from '@/lib/subscription/entitlements'
 
 const VALID_ROLES: UserRole[] = ['admin', 'cosec', 'viewer', 'auditor']
-const VALID_PLANS: PlanTier[] = ['free', 'pro', 'max']
+const VALID_PLANS: PlanTier[] = ['free', 'basic', 'pro', 'premium']
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -51,7 +53,8 @@ export async function updateUserRole(targetUserId: string, newRole: string) {
 
 export async function updateUserPlan(targetUserId: string, newPlan: string) {
   const { supabase, userId, organizationId } = await requireAdmin()
-  if (!VALID_PLANS.includes(newPlan as PlanTier)) throw new Error('Invalid plan')
+  const normalizedPlan = normalizePlanTier(newPlan)
+  if (!VALID_PLANS.includes(normalizedPlan)) throw new Error('Invalid plan')
 
   const { data: target } = await supabase
     .from('profiles')
@@ -62,7 +65,7 @@ export async function updateUserPlan(targetUserId: string, newPlan: string) {
 
   const { error } = await supabase
     .from('profiles')
-    .update({ plan: newPlan })
+    .update({ plan: normalizedPlan })
     .eq('id', targetUserId)
   if (error) throw new Error('Failed to update plan')
 
@@ -70,8 +73,20 @@ export async function updateUserPlan(targetUserId: string, newPlan: string) {
     organization_id: organizationId,
     user_id: userId,
     action: 'user_plan_updated',
-    details: { target_user_id: targetUserId, old_plan: target.plan, new_plan: newPlan },
+    details: { target_user_id: targetUserId, old_plan: target.plan, new_plan: normalizedPlan },
   })
 
+  revalidatePath('/admin')
+}
+
+export async function adjustUserCredits(targetUserId: string, deltaCredits: number, reason: string) {
+  const { supabase, userId, organizationId } = await requireAdmin()
+  await adjustUserCreditWallet({
+    targetUserId,
+    organizationId,
+    deltaCredits,
+    reason,
+    createdBy: userId,
+  })
   revalidatePath('/admin')
 }

@@ -1,7 +1,18 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import {
+  PDFDocument,
+  type PDFDict,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  type PDFRef,
+  StandardFonts,
+  rgb,
+} from 'pdf-lib'
 import type { Agenda } from '@/lib/supabase/types'
 import type { createClient } from '@/lib/supabase/server'
+import { resolveAgendaPdfSource } from '@/lib/agenda-pdf'
 import {
+  type AgendaPackSection,
   groupAgendasForMeetingPack,
   type MeetingPackConfig,
   type TopLevelBlockId,
@@ -15,6 +26,17 @@ interface BuildMeetingPackInput {
   meetingDate: string
   agendas: Agenda[]
   config: MeetingPackConfig
+}
+
+interface AppendPdfResult {
+  count: number
+  firstPageRef: PDFRef | null
+}
+
+interface BookmarkNode {
+  title: string
+  pageRef: PDFRef | null
+  children: BookmarkNode[]
 }
 
 function wrapText(text: string, maxChars = 95) {
@@ -66,6 +88,8 @@ async function addTextPage(
     })
     cursorY -= 8
   })
+
+  return page.ref
 }
 
 async function addDividerPage(
@@ -109,6 +133,8 @@ async function addDividerPage(
     })
     cursorY -= titleSize + 6
   })
+
+  return page.ref
 }
 
 async function appendPdfFromStorage(
@@ -117,11 +143,11 @@ async function appendPdfFromStorage(
   path: string,
   warnings: string[],
   label: string,
-) {
+): Promise<AppendPdfResult> {
   const { data, error } = await supabase.storage.from('meeting-files').download(path)
   if (error || !data) {
     warnings.push(`${label}: ${error?.message ?? 'File not found'}`)
-    return 0
+    return { count: 0, firstPageRef: null }
   }
 
   try {
@@ -130,16 +156,153 @@ async function appendPdfFromStorage(
     const pageIndexes = source.getPageIndices()
     const pages = await doc.copyPages(source, pageIndexes)
     pages.forEach(page => doc.addPage(page))
-    return pages.length
+    return { count: pages.length, firstPageRef: pages[0]?.ref ?? null }
   } catch (e) {
     warnings.push(`${label}: ${e instanceof Error ? e.message : 'Failed to parse PDF'}`)
-    return 0
+    return { count: 0, firstPageRef: null }
   }
 }
 
-function getAgendaPdfPath(config: MeetingPackConfig, agenda: Agenda) {
+function getAgendaPdfPath(config: MeetingPackConfig, agenda: Agenda, agendas: Agenda[]) {
   const override = config.agendaPdfOverrides.find(item => item.agendaId === agenda.id)
-  return override?.pdfPath ?? agenda.slide_pages
+  return override?.pdfPath ?? resolveAgendaPdfSource(agendas, agenda.id).path
+}
+
+function getAgendaBookmarkTitle(agenda: Agenda) {
+  return `${agenda.agenda_no} ${agenda.title}`.trim()
+}
+
+function setBookmarkPageRef(target: BookmarkNode | undefined, pageRef: PDFRef | null) {
+  if (!target || !pageRef || target.pageRef) return
+  target.pageRef = pageRef
+}
+
+function buildBookmarkNodesForSections(
+  sectionLookup: Map<string, AgendaPackSection>,
+  topLevelOrder: TopLevelBlockId[],
+  targetsByHeadingId: Map<string, BookmarkNode>,
+) {
+  const ordered: BookmarkNode[] = []
+  const seenHeadingIds = new Set<string>()
+
+  for (const block of topLevelOrder) {
+    if (!block.startsWith('section:')) continue
+    const headingId = block.slice('section:'.length)
+    if (seenHeadingIds.has(headingId)) continue
+    seenHeadingIds.add(headingId)
+
+    const target = targetsByHeadingId.get(headingId)
+    if (!target) continue
+
+    const visibleChildren = target.children
+      .filter(child => child.pageRef)
+      .map(child => ({ ...child, pageRef: child.pageRef, children: [] }))
+
+    const pageRef = target.pageRef ?? visibleChildren[0]?.pageRef ?? null
+    if (!pageRef) continue
+
+    ordered.push({
+      title: target.title,
+      pageRef,
+      children: visibleChildren,
+    })
+  }
+
+  if (ordered.length > 0) return ordered
+
+  for (const [headingId, section] of sectionLookup) {
+    if (seenHeadingIds.has(headingId)) continue
+    const target = targetsByHeadingId.get(headingId)
+    if (!target) continue
+    const visibleChildren = target.children
+      .filter(child => child.pageRef)
+      .map(child => ({ ...child, pageRef: child.pageRef, children: [] }))
+    const pageRef = target.pageRef ?? visibleChildren[0]?.pageRef ?? null
+    if (!pageRef) continue
+
+    ordered.push({
+      title: target.title || getAgendaBookmarkTitle(section.heading),
+      pageRef,
+      children: visibleChildren,
+    })
+  }
+
+  return ordered
+}
+
+function createOutlineLevel(
+  doc: PDFDocument,
+  parentRef: PDFRef,
+  nodes: BookmarkNode[],
+  warnings: string[],
+) {
+  const created: Array<{ ref: PDFRef; dict: PDFDict; span: number }> = []
+
+  for (const node of nodes) {
+    if (!node.pageRef) continue
+
+    try {
+      const dict = doc.context.obj({
+        Title: PDFHexString.fromText(node.title),
+        Parent: parentRef,
+        Dest: [node.pageRef, PDFName.of('Fit')],
+      })
+      const ref = doc.context.register(dict)
+      const childTree = createOutlineLevel(doc, ref, node.children, warnings)
+      if (childTree) {
+        dict.set(PDFName.of('First'), childTree.firstRef)
+        dict.set(PDFName.of('Last'), childTree.lastRef)
+        dict.set(PDFName.of('Count'), PDFNumber.of(childTree.visibleCount))
+      }
+      created.push({
+        ref,
+        dict,
+        span: 1 + (childTree?.visibleCount ?? 0),
+      })
+    } catch (error) {
+      warnings.push(`Bookmark ${node.title}: ${error instanceof Error ? error.message : 'Failed to create bookmark'}`)
+    }
+  }
+
+  if (created.length === 0) return null
+
+  for (let index = 0; index < created.length; index += 1) {
+    const current = created[index]
+    const prev = created[index - 1]
+    const next = created[index + 1]
+    if (prev) current.dict.set(PDFName.of('Prev'), prev.ref)
+    if (next) current.dict.set(PDFName.of('Next'), next.ref)
+  }
+
+  return {
+    firstRef: created[0].ref,
+    lastRef: created[created.length - 1].ref,
+    visibleCount: created.reduce((sum, item) => sum + item.span, 0),
+  }
+}
+
+function attachOutlineBookmarks(
+  doc: PDFDocument,
+  rootNodes: BookmarkNode[],
+  warnings: string[],
+) {
+  if (rootNodes.length === 0) return
+
+  try {
+    const outlinesDict = doc.context.obj({ Type: 'Outlines' })
+    const outlinesRef = doc.context.register(outlinesDict)
+    const outlineTree = createOutlineLevel(doc, outlinesRef, rootNodes, warnings)
+    if (!outlineTree) return
+
+    outlinesDict.set(PDFName.of('First'), outlineTree.firstRef)
+    outlinesDict.set(PDFName.of('Last'), outlineTree.lastRef)
+    outlinesDict.set(PDFName.of('Count'), PDFNumber.of(outlineTree.visibleCount))
+
+    doc.catalog.set(PDFName.of('Outlines'), outlinesRef)
+    doc.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'))
+  } catch (error) {
+    warnings.push(`Bookmarks: ${error instanceof Error ? error.message : 'Failed to build bookmark outline'}`)
+  }
 }
 
 export async function buildMeetingPackPdf({
@@ -152,13 +315,36 @@ export async function buildMeetingPackPdf({
   const doc = await PDFDocument.create()
   const warnings: string[] = []
   let totalPages = 0
+  const groupedSections = groupAgendasForMeetingPack(agendas)
+  const excludedAgendaIds = new Set(config.excludedAgendaIds ?? [])
+  const sectionLookup = new Map(groupedSections.map(s => [s.heading.id, s]))
+  const bookmarkTargetsByHeadingId = new Map<string, BookmarkNode>()
+  const bookmarkTargetsByItemId = new Map<string, BookmarkNode>()
+
+  groupedSections.forEach(section => {
+    const children = section.items.map(item => {
+      const childTarget: BookmarkNode = {
+        title: getAgendaBookmarkTitle(item),
+        pageRef: null,
+        children: [],
+      }
+      bookmarkTargetsByItemId.set(item.id, childTarget)
+      return childTarget
+    })
+
+    bookmarkTargetsByHeadingId.set(section.heading.id, {
+      title: getAgendaBookmarkTitle(section.heading),
+      pageRef: null,
+      children,
+    })
+  })
 
   async function addFixedSection(block: Extract<TopLevelBlockId, 'front_page' | 'confidentiality' | 'end_notes'>) {
     const path = config.fixedSections[block].pdfPath
     if (path) {
       const copied = await appendPdfFromStorage(doc, supabase, path, warnings, block)
-      totalPages += copied
-      if (copied > 0) return
+      totalPages += copied.count
+      if (copied.count > 0) return
     }
 
     if (block === 'front_page') {
@@ -186,46 +372,57 @@ export async function buildMeetingPackPdf({
     totalPages += 1
   }
 
-  const sectionLookup = new Map(
-    groupAgendasForMeetingPack(agendas).map(s => [s.heading.id, s]),
-  )
-
   async function insertDivider(agendaNo: string, title: string, customPdfPath: string | null) {
     if (customPdfPath) {
       const copied = await appendPdfFromStorage(doc, supabase, customPdfPath, warnings, `Divider: ${title}`)
-      totalPages += copied
-      if (copied > 0) return
+      totalPages += copied.count
+      if (copied.count > 0) return copied.firstPageRef
     }
-    await addDividerPage(doc, agendaNo, title)
+    const pageRef = await addDividerPage(doc, agendaNo, title)
     totalPages += 1
+    return pageRef
   }
 
   async function addSectionBlock(headingId: string) {
     const section = sectionLookup.get(headingId)
     if (!section) return
+    const sectionTarget = bookmarkTargetsByHeadingId.get(headingId)
 
     if (config.includeSectionDividerPages) {
-      await insertDivider(section.heading.agenda_no, section.heading.title, config.sectionDividerPdfPath)
+      const dividerRef = await insertDivider(section.heading.agenda_no, section.heading.title, config.sectionDividerPdfPath)
+      setBookmarkPageRef(sectionTarget, dividerRef ?? null)
     }
 
-    const sectionPdfPath = getAgendaPdfPath(config, section.heading)
+    const includeSectionHeading = !excludedAgendaIds.has(section.heading.id)
+    const sectionPdfPath = includeSectionHeading ? getAgendaPdfPath(config, section.heading, agendas) : null
     if (sectionPdfPath) {
-      totalPages += await appendPdfFromStorage(
+      const copied = await appendPdfFromStorage(
         doc, supabase, sectionPdfPath, warnings,
         `Agenda ${section.heading.agenda_no} ${section.heading.title}`,
       )
+      totalPages += copied.count
+      setBookmarkPageRef(sectionTarget, copied.firstPageRef)
     }
 
     for (const item of section.items) {
+      if (excludedAgendaIds.has(item.id)) continue
+      const itemTarget = bookmarkTargetsByItemId.get(item.id)
       if (config.includeSubsectionDividerPages) {
-        await insertDivider(item.agenda_no, item.title, config.subsectionDividerPdfPath)
+        const dividerRef = await insertDivider(item.agenda_no, item.title, config.subsectionDividerPdfPath)
+        setBookmarkPageRef(itemTarget, dividerRef ?? null)
       }
-      const itemPdfPath = getAgendaPdfPath(config, item)
-      if (!itemPdfPath) continue
-      totalPages += await appendPdfFromStorage(
+      const itemPdfPath = getAgendaPdfPath(config, item, agendas)
+      if (!itemPdfPath) {
+        setBookmarkPageRef(sectionTarget, itemTarget?.pageRef ?? null)
+        continue
+      }
+      const copied = await appendPdfFromStorage(
         doc, supabase, itemPdfPath, warnings,
         `Agenda ${item.agenda_no} ${item.title}`,
       )
+      totalPages += copied.count
+      setBookmarkPageRef(itemTarget, copied.firstPageRef)
+      setBookmarkPageRef(sectionTarget, itemTarget?.pageRef ?? null)
     }
   }
 
@@ -255,8 +452,8 @@ export async function buildMeetingPackPdf({
 
       if (customSection.pdfPath) {
         const copied = await appendPdfFromStorage(doc, supabase, customSection.pdfPath, warnings, customSection.title)
-        totalPages += copied
-        if (copied > 0) continue
+        totalPages += copied.count
+        if (copied.count > 0) continue
       }
 
       await addTextPage(doc, customSection.title, ['No PDF attached for this custom section.'])
@@ -266,7 +463,15 @@ export async function buildMeetingPackPdf({
 
   if (totalPages === 0) throw new Error('No pages available for Meeting Pack')
 
+  if (config.includeBookmarks) {
+    const rootNodes = buildBookmarkNodesForSections(
+      sectionLookup,
+      config.topLevelOrder,
+      bookmarkTargetsByHeadingId,
+    )
+    attachOutlineBookmarks(doc, rootNodes, warnings)
+  }
+
   const bytes = await doc.save()
   return { bytes, warnings }
 }
-

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { CheckCircle2, Clock, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { postJson } from '@/lib/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -17,7 +18,6 @@ interface CustomRequest {
 
 interface Props {
   requests: CustomRequest[]
-  onUpdateStatus: (id: string, status: CustomIndustryRequestStatus, notes: string) => Promise<void>
 }
 
 const BADGE_STYLE: Record<CustomIndustryRequestStatus, string> = {
@@ -32,10 +32,12 @@ function fmtDate(v: string) {
   return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-export function TabCustomRequests({ requests, onUpdateStatus }: Props) {
+export function TabCustomRequests({ requests }: Props) {
   const [editId, setEditId] = useState<string | null>(null)
   const [notes, setNotes] = useState('')
+  const [items, setItems] = useState(requests)
   const [isPending, startTransition] = useTransition()
+  const total = useMemo(() => items.length, [items.length])
 
   function update(id: string, status: CustomIndustryRequestStatus) {
     startTransition(async () => {
@@ -44,7 +46,30 @@ export function TabCustomRequests({ requests, onUpdateStatus }: Props) {
     })
   }
 
-  if (requests.length === 0) {
+  async function onUpdateStatus(
+    id: string,
+    status: CustomIndustryRequestStatus,
+    nextNotes: string,
+  ) {
+    await postJson<{ ok: true }>('/api/admin/custom-requests/status', {
+      id,
+      status,
+      notes: nextNotes,
+    })
+    setItems(prev =>
+      prev.map(item =>
+        item.id === id
+          ? {
+              ...item,
+              status,
+              admin_notes: nextNotes || null,
+            }
+          : item,
+      ),
+    )
+  }
+
+  if (items.length === 0) {
     return (
       <div className="rounded-lg border border-border/70 bg-white/92 px-6 py-12 text-center">
         <Clock className="mx-auto h-8 w-8 text-muted-foreground/50" />
@@ -57,7 +82,7 @@ export function TabCustomRequests({ requests, onUpdateStatus }: Props) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Custom Requests</h3>
-        <Badge variant="secondary">{requests.length} total</Badge>
+        <Badge variant="secondary">{total} total</Badge>
       </div>
       <div className="overflow-hidden rounded-lg border border-border/70">
         <table className="w-full text-sm">
@@ -72,7 +97,7 @@ export function TabCustomRequests({ requests, onUpdateStatus }: Props) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border/50">
-            {requests.map(r => (
+            {items.map(r => (
               <tr key={r.id} className="bg-white/80">
                 <td className="px-4 py-3 text-muted-foreground">{fmtDate(r.created_at)}</td>
                 <td className="px-4 py-3">{r.user_name ?? 'Unknown'}</td>

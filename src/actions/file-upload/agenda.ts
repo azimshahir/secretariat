@@ -2,6 +2,8 @@
 
 import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/server'
+import { maybeApplyCommitteeFormattingDefaultToMeeting } from '@/lib/committee-formatting-defaults-server'
+import type { DatabaseClient } from '@/lib/meeting-generation/shared'
 import { uuidSchema } from '@/lib/validation'
 import { uploadFileToStorage } from './shared'
 import { assertFileSize } from './validation'
@@ -28,6 +30,15 @@ export async function parseAgendaExcel(meetingId: string, file: File) {
   await supabase.from('agendas').delete().eq('meeting_id', meetingId)
   const { error } = await supabase.from('agendas').insert(agendas)
   if (error) throw new Error(error.message)
+
+  try {
+    await maybeApplyCommitteeFormattingDefaultToMeeting(
+      supabase as unknown as DatabaseClient,
+      meetingId,
+    )
+  } catch (error) {
+    console.error('[parseAgendaExcel] committee formatting default apply failed:', error)
+  }
 
   await uploadFileToStorage(meetingId, file, 'agenda_excel')
   const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', user.id).single()

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Loader2, MailPlus, Pencil, Users } from 'lucide-react'
 
-import { inviteSecretariatMember } from '@/actions/secretariat'
+import { postFormData } from '@/lib/api/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -14,19 +14,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { FormatSection } from './format-section'
 import { GlossarySection } from './glossary-section'
-import { saveCommittee } from './actions'
 
 interface Committee {
   id: string
   name: string
   slug: string
   persona_prompt: string | null
-}
-
-interface Template {
-  id: string
-  name: string
-  prompt_text: string
 }
 
 interface GlossaryItem {
@@ -58,7 +51,7 @@ export function CommitteeSettingsCard({
   defaultTab,
 }: {
   committee: Committee
-  templates: Template[]
+  templates: Array<{ id: string }>
   glossary: GlossaryItem[]
   members: CommitteeMember[]
   invitations: CommitteeInvitation[]
@@ -76,8 +69,8 @@ export function CommitteeSettingsCard({
         toast.success('Secretariat updated')
         setEditing(false)
         router.refresh()
-      } catch {
-        toast.error('Failed to save')
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to save')
       }
     })
   }
@@ -109,7 +102,7 @@ export function CommitteeSettingsCard({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">{templates.length} templates</Badge>
+          <Badge variant="secondary">{templates.length} format variants</Badge>
           <Badge variant="secondary">{glossary.length} terms</Badge>
           <Badge variant="secondary">{members.length} operators</Badge>
         </div>
@@ -118,13 +111,19 @@ export function CommitteeSettingsCard({
         <Tabs defaultValue={defaultTab ?? 'profile'}>
           <TabsList>
             <TabsTrigger value="profile">Profile</TabsTrigger>
-            <TabsTrigger value="templates">Format Templates</TabsTrigger>
+            <TabsTrigger value="playbooks">Playbooks</TabsTrigger>
             <TabsTrigger value="glossary">Glossary</TabsTrigger>
             <TabsTrigger value="access">Access</TabsTrigger>
           </TabsList>
           <TabsContent value="profile" className="pt-4">
             {editing ? (
-              <form action={handleSubmit} className="space-y-3">
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  handleSubmit(new FormData(event.currentTarget))
+                }}
+                className="space-y-3"
+              >
                 <input type="hidden" name="id" value={committee.id} />
                 <Input
                   name="name"
@@ -185,8 +184,8 @@ export function CommitteeSettingsCard({
               </div>
             )}
           </TabsContent>
-          <TabsContent value="templates" className="pt-4">
-            <FormatSection committeeId={committee.id} templates={templates} />
+          <TabsContent value="playbooks" className="pt-4">
+            <FormatSection committeeId={committee.id} />
           </TabsContent>
           <TabsContent value="glossary" className="pt-4">
             <GlossarySection committeeId={committee.id} glossary={glossary} />
@@ -267,7 +266,13 @@ export function CommitteeSettingsCard({
                   The invited user will only gain operator access to this
                   secretariat and its meetings.
                 </p>
-                <form action={handleInvite} className="mt-4 space-y-3">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    handleInvite(new FormData(event.currentTarget))
+                  }}
+                  className="mt-4 space-y-3"
+                >
                   <input type="hidden" name="committeeId" value={committee.id} />
                   <Input
                     name="email"
@@ -291,4 +296,12 @@ export function CommitteeSettingsCard({
       </CardContent>
     </Card>
   )
+}
+
+async function saveCommittee(formData: FormData) {
+  await postFormData<{ ok: true }>('/api/settings/committee', formData)
+}
+
+async function inviteSecretariatMember(formData: FormData) {
+  await postFormData<{ ok: true }>('/api/settings/invite', formData)
 }

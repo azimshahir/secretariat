@@ -4,4 +4,5 @@ export interface CommitteeGenerationSettingsResult {
   defaultFormatTemplateText: string | null
   defaultFormatSourceName: string | null
   minuteInstruction: string
+  templateSections: Record<string, unknown>[]
 }

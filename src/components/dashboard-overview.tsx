@@ -11,14 +11,14 @@ import {
   CheckCircle2,
   Clock3,
   FolderKanban,
-  ListTodo,
+  LayoutDashboard,
   Settings2,
+  Sparkles,
 } from 'lucide-react'
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -26,8 +26,14 @@ import {
 } from 'recharts'
 
 import { CreateActionMenu } from '@/components/create-action-menu'
-import { Badge } from '@/components/ui/badge'
+import {
+  DashboardPill,
+  DashboardSectionIntro,
+  DashboardStatCard,
+  DashboardSurface,
+} from '@/components/dashboard-primitives'
 import { Button } from '@/components/ui/button'
+import { normalizeMeetingStatus } from '@/lib/meeting-links'
 import type { DashboardScope } from '@/lib/secretariat-access'
 import type { MeetingStatus } from '@/lib/supabase/types'
 import { cn } from '@/lib/utils'
@@ -66,12 +72,12 @@ interface DashboardOverviewProps {
 }
 
 const statusTone: Record<MeetingStatus, string> = {
-  draft: 'bg-slate-100 text-slate-700',
-  pending_setup: 'bg-amber-100 text-amber-700',
-  mapping: 'bg-cyan-100 text-cyan-700',
-  generating: 'bg-violet-100 text-violet-700',
-  in_progress: 'bg-emerald-100 text-emerald-700',
-  finalized: 'bg-teal-100 text-teal-700',
+  draft: 'border-zinc-200 bg-zinc-50 text-zinc-700',
+  pending_setup: 'border-amber-200 bg-amber-50 text-amber-700',
+  mapping: 'border-cyan-200 bg-cyan-50 text-cyan-700',
+  generating: 'border-violet-200 bg-violet-50 text-violet-700',
+  in_progress: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  finalized: 'border-teal-200 bg-teal-50 text-teal-700',
 }
 
 function startOfMonth(value: Date) {
@@ -98,8 +104,12 @@ function formatDate(value: string) {
   })
 }
 
+function formatStatusLabel(value: MeetingStatus) {
+  return normalizeMeetingStatus(value).replace('_', ' ')
+}
+
 function getMeetingHref(meeting: MeetingRow) {
-  switch (meeting.status) {
+  switch (normalizeMeetingStatus(meeting.status)) {
     case 'draft':
     case 'pending_setup':
     case 'mapping':
@@ -109,6 +119,10 @@ function getMeetingHref(meeting: MeetingRow) {
     case 'finalized':
       return `/meeting/${meeting.id}/view`
   }
+}
+
+function getPendingCount(items: PendingJobSummary[], label: string) {
+  return items.find(item => item.label === label)?.count ?? 0
 }
 
 export function DashboardOverview({
@@ -132,6 +146,8 @@ export function DashboardOverview({
     upcomingMeetings,
     doneThisYear,
     pendingThisYear,
+    liveWorkspaces,
+    operationsQueue,
   } = useMemo(() => {
     const today = new Date(currentDate)
     const sortedMeetings = [...meetings].sort(
@@ -180,293 +196,331 @@ export function DashboardOverview({
     return {
       calendarDays: days,
       monthMeetings: visibleMonthMeetings,
-      upcomingMeetings: futureMeetings.slice(0, 4),
+      upcomingMeetings: futureMeetings.slice(0, 5),
       doneThisYear: thisYearMeetings.filter(
         meeting => meeting.status === 'finalized'
       ).length,
       pendingThisYear: thisYearMeetings.filter(
         meeting => meeting.status !== 'finalized'
       ).length,
+      liveWorkspaces: sortedMeetings.filter(meeting => meeting.status !== 'finalized')
+        .length,
+      operationsQueue: pendingJobs
+        .filter(item => item.count > 0)
+        .sort((left, right) => right.count - left.count)
+        .slice(0, 4),
     }
-  }, [currentDate, displayMonth, meetings])
+  }, [currentDate, displayMonth, meetings, pendingJobs])
 
   const nextMeeting = upcomingMeetings[0] ?? null
   const meetingHref = activeCommitteeId
     ? `/meeting/new?committee=${activeCommitteeId}`
     : '/meeting/new'
+  const readyToFinalizeCount = getPendingCount(pendingJobs, 'Ready to finalize')
+  const mappingNeededCount = getPendingCount(pendingJobs, 'Mapping needed')
+  const transcriptMissingCount = getPendingCount(pendingJobs, 'No transcript uploaded')
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_320px]">
-        <motion.section
-          initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+      <motion.div
+        initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+        animate={reduceMotion ? {} : { opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"
+      >
+        <DashboardStatCard
+          label="Next Meeting"
+          value={nextMeeting ? formatDate(nextMeeting.meeting_date) : 'No hold'}
+          description={nextMeeting?.title ?? 'No meeting is on the calendar yet.'}
+          icon={CalendarClock}
+          tone="primary"
+        />
+        <DashboardStatCard
+          label="Live Workspaces"
+          value={liveWorkspaces}
+          description="Meetings still moving through setup, generation, or review."
+          icon={LayoutDashboard}
+          tone="default"
+        />
+        <DashboardStatCard
+          label="Overdue"
+          value={overdueCount}
+          description="Past-date meetings that still need to be finalized."
+          icon={AlertTriangle}
+          tone="warning"
+        />
+        <DashboardStatCard
+          label="Ready To Finalize"
+          value={readyToFinalizeCount}
+          description="Meetings with enough minute coverage for final review."
+          icon={CheckCircle2}
+          tone="success"
+        />
+      </motion.div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.48fr)_360px]">
+        <motion.div
+          initial={reduceMotion ? false : { opacity: 0, y: 16 }}
           animate={reduceMotion ? {} : { opacity: 1, y: 0 }}
-          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-          className="rounded-[22px] border border-border/70 bg-white/92 p-4 shadow-[0_18px_60px_-38px_rgba(15,23,42,0.28)] backdrop-blur md:p-5"
+          transition={{ duration: 0.32, delay: 0.04 }}
         >
-          <div className="flex flex-col gap-3 border-b border-border/70 pb-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="rounded-full bg-primary/10 px-3 py-1 text-primary">
-                  {dashboardScope === 'org' ? 'Organization view' : 'My secretariats'}
-                </Badge>
-                {activeCommitteeName ? (
-                  <Badge
-                    variant="secondary"
-                    className="rounded-full px-3 py-1 text-foreground"
+          <DashboardSurface tone="muted" padding="lg">
+            <DashboardSectionIntro
+              eyebrow={
+                dashboardScope === 'org' ? 'Organization planning surface' : 'Secretariat planning surface'
+              }
+              title="Calendar Overview"
+              description="Track what is scheduled this month, scan busy days quickly, and jump straight into the next active workspace."
+              actions={(
+                <>
+                  <CreateActionMenu
+                    meetingHref={meetingHref}
+                    canCreateMeeting={committeeCount > 0}
+                    className="h-9 rounded-[12px] px-3.5 text-[0.82rem]"
+                  />
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="h-9 rounded-[12px] px-3.5 text-[0.82rem]"
                   >
-                    {activeCommitteeName}
-                  </Badge>
-                ) : null}
-              </div>
-              <div>
-                <h2 className="font-display text-[1.9rem] font-semibold tracking-[-0.05em] text-foreground">
-                  Calendar overview
-                </h2>
-                <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  See every scheduled meeting this month, then work down the
-                  workflow backlog across your accessible secretariats.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <CreateActionMenu
-                meetingHref={meetingHref}
-                canCreateMeeting={committeeCount > 0}
-                className="h-9 rounded-[12px] px-3.5 text-[0.84rem]"
-              />
-              <Button
-                asChild
-                variant="outline"
-                size="sm"
-                className="h-9 rounded-[12px] px-3.5 text-[0.84rem]"
-              >
-                <Link href="/settings">
-                  <Settings2 className="h-3.5 w-3.5" />
-                  Settings
-                </Link>
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-primary/65">
-                {displayMonth.toLocaleDateString('en-MY', {
-                  month: 'long',
-                  year: 'numeric',
-                })}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {monthMeetings.length} scheduled meeting
-                {monthMeetings.length === 1 ? '' : 's'} in this month
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setDisplayMonth(previous => addMonths(previous, -1))}
-                className="h-8 w-8 rounded-[12px]"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setDisplayMonth(previous => addMonths(previous, 1))}
-                className="h-8 w-8 rounded-[12px]"
-              >
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-7 gap-2 text-center text-[0.68rem] font-medium uppercase tracking-[0.18em] text-muted-foreground/90">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-              <div key={day} className="py-1">
-                {day}
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-2 grid grid-cols-7 gap-2">
-            {calendarDays.map(day => (
-              <div
-                key={day.date.toISOString()}
-                className={cn(
-                  'min-h-[106px] rounded-[16px] border p-2.5 transition-colors',
-                  day.inMonth
-                    ? 'border-border/70 bg-white'
-                    : 'border-border/50 bg-secondary/25 text-muted-foreground/70',
-                  day.isToday && 'border-primary/30 bg-primary/5'
-                )}
-              >
-                <div className="mb-2 flex items-center justify-between">
-                  <span
-                    className={cn(
-                      'text-xs font-medium',
-                      day.isToday &&
-                        'flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground'
-                    )}
-                  >
-                    {day.date.getDate()}
-                  </span>
-                  {day.meetings.length > 0 ? (
-                    <span className="text-[10px] text-muted-foreground">
-                      {day.meetings.length}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="space-y-1.5">
-                  {day.meetings.slice(0, 2).map(meeting => (
-                    <Link
-                      key={meeting.id}
-                      href={getMeetingHref(meeting)}
-                      className={cn(
-                        'block rounded-[10px] px-2 py-1 text-left text-[11px] leading-4 transition-colors hover:opacity-85',
-                        statusTone[meeting.status]
-                      )}
-                    >
-                      <p className="truncate font-medium">{meeting.title}</p>
-                      {meeting.committee_name ? (
-                        <p className="truncate opacity-75">
-                          {meeting.committee_name}
-                        </p>
-                      ) : null}
+                    <Link href="/settings">
+                      <Settings2 className="h-3.5 w-3.5" />
+                      Settings
                     </Link>
-                  ))}
-                  {day.meetings.length > 2 ? (
-                    <p className="px-1 text-[11px] text-muted-foreground">
-                      +{day.meetings.length - 2} more
-                    </p>
-                  ) : null}
-                </div>
+                  </Button>
+                </>
+              )}
+            />
+
+            <div className="mt-4 flex flex-col gap-3 border-t border-border/70 pt-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <DashboardPill tone="primary">
+                  {displayMonth.toLocaleDateString('en-MY', {
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </DashboardPill>
+                {activeCommitteeName ? (
+                  <DashboardPill>{activeCommitteeName}</DashboardPill>
+                ) : (
+                  <DashboardPill>{committeeCount} secretariat{committeeCount === 1 ? '' : 's'} in scope</DashboardPill>
+                )}
+                <DashboardPill>{monthMeetings.length} scheduled this month</DashboardPill>
               </div>
-            ))}
-          </div>
-        </motion.section>
-
-        <div className="grid gap-3">
-          <motion.section
-            initial={reduceMotion ? false : { opacity: 0, y: 18 }}
-            animate={reduceMotion ? {} : { opacity: 1, y: 0 }}
-            transition={{ duration: 0.28, delay: 0.04 }}
-            className="rounded-[20px] border border-border/70 bg-white/92 p-4 shadow-[0_18px_52px_-34px_rgba(15,23,42,0.24)]"
-          >
-            <div className="flex items-center gap-2">
-              <CalendarClock className="h-4 w-4 text-primary" />
-              <p className="text-xs uppercase tracking-[0.2em] text-primary/65">
-                Upcoming meeting
-              </p>
-            </div>
-            <div className="mt-3 space-y-1">
-              <p className="text-[1.55rem] font-semibold tracking-[-0.04em] text-foreground">
-                {nextMeeting ? formatDate(nextMeeting.meeting_date) : 'None scheduled'}
-              </p>
-              <p className="text-sm font-medium text-foreground">
-                {nextMeeting?.title ?? 'Create a new secretariat or meeting to begin.'}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {nextMeeting?.committee_name ?? 'No upcoming items yet.'}
-              </p>
-            </div>
-          </motion.section>
-
-          <motion.section
-            initial={reduceMotion ? false : { opacity: 0, y: 18 }}
-            animate={reduceMotion ? {} : { opacity: 1, y: 0 }}
-            transition={{ duration: 0.28, delay: 0.08 }}
-            className="rounded-[20px] border border-border/70 bg-white/92 p-4 shadow-[0_18px_52px_-34px_rgba(15,23,42,0.24)]"
-          >
-            <div className="flex items-center gap-2">
-              <ListTodo className="h-4 w-4 text-primary" />
-              <p className="text-xs uppercase tracking-[0.2em] text-primary/65">
-                Pending jobs
-              </p>
-            </div>
-            <div className="mt-3 space-y-2.5">
-              {pendingJobs.map(item => (
-                <div
-                  key={item.label}
-                  className="rounded-[14px] border border-border/60 bg-secondary/25 px-3 py-2.5"
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setDisplayMonth(previous => addMonths(previous, -1))}
+                  className="h-8 w-8 rounded-[11px]"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-foreground">
-                      {item.label}
-                    </p>
-                    <Badge variant="secondary">{item.count}</Badge>
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {item.helper}
-                  </p>
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setDisplayMonth(previous => addMonths(previous, 1))}
+                  className="h-8 w-8 rounded-[11px]"
+                >
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-7 gap-2 text-center text-[0.63rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground/85">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                <div key={day} className="py-1">
+                  {day}
                 </div>
               ))}
             </div>
-          </motion.section>
 
-          <motion.section
-            initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+            <div className="mt-2 grid grid-cols-7 gap-2">
+              {calendarDays.map(day => (
+                <div
+                  key={day.date.toISOString()}
+                  className={cn(
+                    'min-h-[96px] rounded-[18px] border px-2.5 py-2 transition-colors',
+                    day.inMonth
+                      ? 'border-border/70 bg-white/92'
+                      : 'border-border/55 bg-secondary/25 text-muted-foreground/70',
+                    day.isToday && 'border-primary/25 bg-primary/5'
+                  )}
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <span
+                      className={cn(
+                        'text-[11px] font-semibold',
+                        day.isToday &&
+                          'flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground'
+                      )}
+                    >
+                      {day.date.getDate()}
+                    </span>
+                    {day.meetings.length > 0 ? (
+                      <span className="text-[10px] text-muted-foreground">
+                        {day.meetings.length}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="space-y-1.5">
+                    {day.meetings.slice(0, 2).map(meeting => (
+                      <Link
+                        key={meeting.id}
+                        href={getMeetingHref(meeting)}
+                        className={cn(
+                          'block rounded-[12px] border px-2 py-1 text-left text-[10.5px] leading-4 transition-colors hover:opacity-90',
+                          statusTone[normalizeMeetingStatus(meeting.status)]
+                        )}
+                      >
+                        <p className="truncate font-medium">{meeting.title}</p>
+                        {meeting.committee_name ? (
+                          <p className="truncate opacity-75">
+                            {meeting.committee_name}
+                          </p>
+                        ) : null}
+                      </Link>
+                    ))}
+                    {day.meetings.length > 2 ? (
+                      <p className="px-1 text-[10.5px] text-muted-foreground">
+                        +{day.meetings.length - 2} more
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </DashboardSurface>
+        </motion.div>
+
+        <div className="grid content-start gap-3.5">
+          <motion.div
+            initial={reduceMotion ? false : { opacity: 0, y: 16 }}
+            animate={reduceMotion ? {} : { opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, delay: 0.08 }}
+          >
+            <DashboardSurface tone="accent" padding="md">
+              <DashboardSectionIntro
+                eyebrow="Operational focus"
+                title="What Needs Attention"
+                description="Highest-friction backlog across agenda setup, transcript readiness, mapping, and review."
+                compact
+              />
+              <div className="mt-4 space-y-2.5">
+                {operationsQueue.length > 0 ? operationsQueue.map(item => (
+                  <div
+                    key={item.label}
+                    className="rounded-[18px] border border-white/70 bg-white/84 px-3.5 py-3 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground">
+                          {item.label}
+                        </p>
+                        <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+                          {item.helper}
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-primary/15 bg-primary/8 px-2.5 py-1 text-[11px] font-semibold text-primary">
+                        {item.count}
+                      </span>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="rounded-[18px] border border-white/70 bg-white/84 px-4 py-4 text-sm text-muted-foreground shadow-sm">
+                    No urgent backlog right now.
+                  </div>
+                )}
+              </div>
+            </DashboardSurface>
+          </motion.div>
+
+          <motion.div
+            initial={reduceMotion ? false : { opacity: 0, y: 16 }}
             animate={reduceMotion ? {} : { opacity: 1, y: 0 }}
             transition={{ duration: 0.28, delay: 0.12 }}
-            className="rounded-[20px] border border-border/70 bg-white/92 p-4 shadow-[0_18px_52px_-34px_rgba(15,23,42,0.24)]"
           >
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-primary" />
-              <p className="text-xs uppercase tracking-[0.2em] text-primary/65">
-                Important watchlist
-              </p>
-            </div>
-            <div className="mt-3 grid gap-2.5">
-              <div className="rounded-[14px] border border-border/60 bg-secondary/25 px-3 py-3">
-                <p className="text-[1.45rem] font-semibold tracking-[-0.04em] text-foreground">
-                  {overdueCount}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Overdue meetings still not finalized.
-                </p>
+            <DashboardSurface padding="md">
+              <DashboardSectionIntro
+                eyebrow="Next calendar hold"
+                title={nextMeeting ? nextMeeting.title : 'No upcoming meeting'}
+                description={nextMeeting
+                  ? `${formatDate(nextMeeting.meeting_date)}${nextMeeting.committee_name ? ` • ${nextMeeting.committee_name}` : ''}`
+                  : 'Create a new meeting to start populating the planning surface.'}
+                compact
+                actions={nextMeeting ? (
+                  <Button asChild size="sm" className="h-8 rounded-[11px] px-3">
+                    <Link href={getMeetingHref(nextMeeting)}>
+                      Open Workspace
+                    </Link>
+                  </Button>
+                ) : null}
+              />
+            </DashboardSurface>
+          </motion.div>
+
+          <motion.div
+            initial={reduceMotion ? false : { opacity: 0, y: 16 }}
+            animate={reduceMotion ? {} : { opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, delay: 0.16 }}
+          >
+            <DashboardSurface padding="md">
+              <DashboardSectionIntro
+                eyebrow="Delivery posture"
+                title="Scope Snapshot"
+                description="Useful signals for how healthy this operating window looks."
+                compact
+              />
+              <div className="mt-4 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-1">
+                <div className="rounded-[18px] border border-border/70 bg-secondary/25 px-3.5 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    Finalized This Year
+                  </p>
+                  <p className="mt-1.5 text-[1.2rem] font-semibold tracking-[-0.04em] text-foreground">
+                    {doneThisYear}
+                  </p>
+                </div>
+                <div className="rounded-[18px] border border-border/70 bg-secondary/25 px-3.5 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    Still In Motion
+                  </p>
+                  <p className="mt-1.5 text-[1.2rem] font-semibold tracking-[-0.04em] text-foreground">
+                    {pendingThisYear}
+                  </p>
+                </div>
+                <div className="rounded-[18px] border border-border/70 bg-secondary/25 px-3.5 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    Transcript Backlog
+                  </p>
+                  <p className="mt-1.5 text-[1.2rem] font-semibold tracking-[-0.04em] text-foreground">
+                    {transcriptMissingCount}
+                  </p>
+                </div>
+                <div className="rounded-[18px] border border-border/70 bg-secondary/25 px-3.5 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    Mapping Queue
+                  </p>
+                  <p className="mt-1.5 text-[1.2rem] font-semibold tracking-[-0.04em] text-foreground">
+                    {mappingNeededCount}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-[14px] border border-border/60 bg-secondary/25 px-3 py-3">
-                <p className="text-[1.45rem] font-semibold tracking-[-0.04em] text-foreground">
-                  {doneThisYear}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Finalized this year across {committeeCount} secretariat
-                  {committeeCount === 1 ? '' : 's'}.
-                </p>
-              </div>
-              <div className="rounded-[14px] border border-border/60 bg-secondary/25 px-3 py-3">
-                <p className="text-[1.45rem] font-semibold tracking-[-0.04em] text-foreground">
-                  {pendingThisYear}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Not yet finalized this year.
-                </p>
-              </div>
-            </div>
-          </motion.section>
+            </DashboardSurface>
+          </motion.div>
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_320px]">
-        <section className="rounded-[20px] border border-border/70 bg-white/92 p-4 shadow-[0_18px_60px_-40px_rgba(15,23,42,0.26)]">
-          <div className="flex flex-col gap-2 border-b border-border/70 pb-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-primary/65">
-                Your meeting operations at a glance
-              </p>
-              <h3 className="font-display text-[1.65rem] font-semibold tracking-[-0.04em] text-foreground">
-                Yearly delivery trend
-              </h3>
-            </div>
-            <p className="max-w-md text-sm leading-6 text-muted-foreground">
-              Track how many meetings are completed versus still moving through
-              setup, mapping, generation, and finalization each month.
-            </p>
-          </div>
-          <div className="mt-4 h-[280px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_360px]">
+        <DashboardSurface padding="lg">
+          <DashboardSectionIntro
+            eyebrow="Delivery rhythm"
+            title="Yearly Delivery Trend"
+            description="Completed versus still-active meetings across the year so you can see when operational load starts to stack."
+          />
+          <div className="mt-4 h-[276px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={yearlyTrend}>
                 <CartesianGrid vertical={false} stroke="rgba(15,23,42,0.08)" />
@@ -474,103 +528,100 @@ export function DashboardOverview({
                   dataKey="label"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: 'rgba(71,85,105,0.8)', fontSize: 12 }}
+                  tick={{ fill: 'rgba(71,85,105,0.82)', fontSize: 12 }}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
                   allowDecimals={false}
-                  tick={{ fill: 'rgba(71,85,105,0.8)', fontSize: 12 }}
+                  tick={{ fill: 'rgba(71,85,105,0.82)', fontSize: 12 }}
                 />
                 <Tooltip
                   cursor={{ fill: 'rgba(15,118,110,0.06)' }}
                   contentStyle={{
-                    borderRadius: 18,
-                    border: '1px solid rgba(148, 163, 184, 0.2)',
-                    boxShadow: '0 18px 50px -28px rgba(15, 23, 42, 0.35)',
+                    borderRadius: 16,
+                    border: '1px solid rgba(148, 163, 184, 0.18)',
+                    boxShadow: '0 18px 50px -30px rgba(15, 23, 42, 0.32)',
                     background: 'rgba(255,255,255,0.96)',
                   }}
                 />
-                <Legend />
                 <Bar
                   dataKey="done"
                   name="Done"
                   fill="rgba(13, 148, 136, 0.92)"
-                  radius={[10, 10, 4, 4]}
+                  radius={[9, 9, 4, 4]}
                   isAnimationActive={!reduceMotion}
                 />
                 <Bar
                   dataKey="pending"
                   name="Not done"
-                  fill="rgba(15, 23, 42, 0.24)"
-                  radius={[10, 10, 4, 4]}
+                  fill="rgba(15, 23, 42, 0.22)"
+                  radius={[9, 9, 4, 4]}
                   isAnimationActive={!reduceMotion}
                 />
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </section>
+        </DashboardSurface>
 
-        <section className="rounded-[20px] border border-border/70 bg-white/92 p-4 shadow-[0_18px_60px_-40px_rgba(15,23,42,0.26)]">
-          <div className="flex items-center gap-2">
-            <FolderKanban className="h-4 w-4 text-primary" />
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-primary/65">
-                Upcoming queue
-              </p>
-              <h3 className="font-display text-[1.4rem] font-semibold tracking-[-0.04em] text-foreground">
-                What needs attention next
-              </h3>
-            </div>
-          </div>
+        <DashboardSurface padding="md">
+          <DashboardSectionIntro
+            eyebrow="Queue"
+            title="Upcoming Workspaces"
+            description="Fast path into the next meetings that will likely need setup or review attention."
+            compact
+          />
           <div className="mt-4 space-y-2.5">
             {upcomingMeetings.length > 0 ? (
               upcomingMeetings.map(meeting => (
                 <Link
                   key={meeting.id}
                   href={getMeetingHref(meeting)}
-                  className="block rounded-[16px] border border-border/70 bg-secondary/25 px-3 py-3 transition-colors hover:border-primary/20 hover:bg-primary/5"
+                  className="block rounded-[18px] border border-border/70 bg-secondary/20 px-3.5 py-3 transition-colors hover:border-primary/18 hover:bg-primary/5"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">
                         {meeting.title}
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
                         {formatDate(meeting.meeting_date)}
-                        {meeting.committee_name
-                          ? ` • ${meeting.committee_name}`
-                          : ''}
+                        {meeting.committee_name ? ` • ${meeting.committee_name}` : ''}
                       </p>
                     </div>
                     <span
                       className={cn(
-                        'rounded-full px-2.5 py-1 text-[10px] font-medium',
-                        statusTone[meeting.status]
+                        'shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium capitalize',
+                        statusTone[normalizeMeetingStatus(meeting.status)]
                       )}
                     >
-                      {meeting.status.replace('_', ' ')}
+                      {formatStatusLabel(meeting.status)}
                     </span>
                   </div>
                 </Link>
               ))
             ) : (
-              <div className="rounded-[16px] border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+              <div className="rounded-[18px] border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
                 No upcoming meetings yet.
               </div>
             )}
-            <div className="rounded-[16px] border border-border/60 bg-secondary/20 px-3 py-3 text-sm text-muted-foreground">
+
+            <div className="rounded-[18px] border border-border/70 bg-secondary/20 px-3.5 py-3 text-[12px] text-muted-foreground">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-primary" />
-                <span>Done this month flows straight to export and review.</span>
+                <Clock3 className="h-3.5 w-3.5 text-primary" />
+                <span>Pending jobs combine agenda, transcript, and minute coverage signals.</span>
               </div>
               <div className="mt-2 flex items-center gap-2">
-                <Clock3 className="h-4 w-4 text-primary" />
-                <span>Pending jobs are derived from agenda, transcript, and minute state.</span>
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                <span>Open a workspace to continue setup, generation, or final review.</span>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <FolderKanban className="h-3.5 w-3.5 text-primary" />
+                <span>Use the calendar above for planning, and this queue for execution.</span>
               </div>
             </div>
           </div>
-        </section>
+        </DashboardSurface>
       </div>
     </div>
   )

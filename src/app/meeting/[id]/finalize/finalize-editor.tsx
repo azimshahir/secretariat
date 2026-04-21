@@ -1,15 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { ArrowLeft, Download, Loader2, Send, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   Document, HeadingLevel, Packer, Paragraph, TextRun,
 } from 'docx'
+import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { submitFinalizedMom } from '@/actions/finalize-mom'
+import { postJson } from '@/lib/api/client'
 
 interface Props {
   meetingId: string
@@ -61,7 +61,7 @@ async function buildDocx(text: string, title: string, date: string) {
 export function FinalizeEditor({
   meetingId, meetingTitle, meetingDate, initialContent, templateUrl, isFinalized,
 }: Props) {
-  const router = useRouter()
+  const { push } = useNavigationTransition()
   const [content, setContent] = useState(initialContent)
   const [submitting, setSubmitting] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -70,9 +70,9 @@ export function FinalizeEditor({
     if (!content.trim()) { toast.error('Content cannot be empty'); return }
     setSubmitting(true)
     try {
-      await submitFinalizedMom(meetingId, content)
+      await postJson<{ ok: true }>(`/api/meeting/${meetingId}/finalize`, { content })
       toast.success('MoM finalized successfully')
-      router.push(`/meeting/${meetingId}/view`)
+      push(`/meeting/${meetingId}/view`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to finalize')
     } finally {
@@ -114,7 +114,7 @@ export function FinalizeEditor({
       <div className="flex items-center justify-between">
         <div>
           <button
-            onClick={() => router.push(`/meeting/${meetingId}/setup`)}
+            onClick={() => { push(`/meeting/${meetingId}/setup`) }}
             className="mb-2 flex items-center gap-1 text-sm text-zinc-500 transition-colors hover:text-primary"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Back to Setup

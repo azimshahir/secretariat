@@ -7,6 +7,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
+import { getActiveBuildId } from '@/lib/app-build'
 
 function buildDiffPreview(oldText: string, newText: string) {
   const oldLines = oldText.split('\n')
@@ -53,6 +54,7 @@ export default async function AuditPage() {
       title="Audit and version history"
       description="Monitor immutable activity, review minute edits, and surface change deltas in a cleaner review workspace built for governance stakeholders."
       containerClassName="max-w-[1500px]"
+      initialBuildId={getActiveBuildId()}
     >
       <Card>
         <CardHeader>

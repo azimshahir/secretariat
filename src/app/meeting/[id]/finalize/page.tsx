@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { formatMomForDownload } from '@/actions/download-mom'
 import { AppShell } from '@/components/app-shell'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
+import { getActiveBuildId } from '@/lib/app-build'
 import { FinalizeEditor } from './finalize-editor'
 
 export default async function FinalizePage({
@@ -52,6 +53,7 @@ export default async function FinalizePage({
       committees={activeSecretariats.length > 0 ? activeSecretariats : committees}
       activeCommitteeId={meeting.committee_id ?? undefined}
       containerClassName="max-w-6xl"
+      initialBuildId={getActiveBuildId()}
     >
       <FinalizeEditor
         meetingId={id}

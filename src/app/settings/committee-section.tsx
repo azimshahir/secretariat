@@ -3,13 +3,13 @@
 import { useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import { Plus, Loader2 } from 'lucide-react'
+import { postFormData } from '@/lib/api/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from '@/components/ui/dialog'
-import { saveCommittee } from './actions'
 
 export function AddCommitteeButton() {
   const [open, setOpen] = useState(false)
@@ -37,7 +37,13 @@ export function AddCommitteeButton() {
           <DialogTitle>New Committee</DialogTitle>
           <DialogDescription>Create a new committee profile with a dedicated system persona.</DialogDescription>
         </DialogHeader>
-        <form action={handleSubmit} className="space-y-3">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            handleSubmit(new FormData(event.currentTarget))
+          }}
+          className="space-y-3"
+        >
           <Input name="name" placeholder="Committee name (e.g. ALCO)" required />
           <Input name="slug" placeholder="committee-slug" required />
           <Textarea name="personaPrompt" className="min-h-24" placeholder="System persona for this committee..." required />
@@ -52,4 +58,8 @@ export function AddCommitteeButton() {
       </DialogContent>
     </Dialog>
   )
+}
+
+async function saveCommittee(formData: FormData) {
+  await postFormData<{ ok: true }>('/api/settings/committee', formData)
 }

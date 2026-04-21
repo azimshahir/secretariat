@@ -3,7 +3,9 @@ import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
+import { getActiveBuildId } from '@/lib/app-build'
 import { INDUSTRY_CATEGORIES } from '@/lib/ai/persona-templates'
+import { getUserEntitlementSnapshot } from '@/lib/subscription/entitlements'
 import { AccountSection } from './account-section'
 import { PlanSection } from './plan-section'
 import { CommitteeSettingsCard } from './committee-settings-card'
@@ -29,17 +31,13 @@ export default async function SettingsPage({
   // Only show secretariats created by this user
   const committees = allCommittees.filter(c => c.created_by === user.id)
 
-  // User meeting stats for billing section
-  const startOfMonth = new Date()
-  startOfMonth.setDate(1)
-  startOfMonth.setHours(0, 0, 0, 0)
-  const { count: meetingsThisMonth } = await supabase
-    .from('meetings').select('*', { count: 'exact', head: true })
-    .eq('created_by', user.id)
-    .gte('created_at', startOfMonth.toISOString())
   const { count: totalMeetings } = await supabase
     .from('meetings').select('*', { count: 'exact', head: true })
     .eq('created_by', user.id)
+  const entitlement = await getUserEntitlementSnapshot({
+    userId: user.id,
+    organizationId: profile.organization_id,
+  })
 
   const committeeIds = committees.map(c => c.id)
   const { data: templates } =
@@ -149,8 +147,9 @@ export default async function SettingsPage({
       committees={committees}
       eyebrow="Account"
       title="Settings"
-      description="Manage your account, subscription, accessible secretariats, templates, glossary, and operator access."
+      description="Manage your account, subscription, accessible secretariats, playbooks, glossary, and operator access."
       containerClassName="max-w-[1400px]"
+      initialBuildId={getActiveBuildId()}
     >
       <div className="grid gap-6">
         {/* Account & Security */}
@@ -159,7 +158,11 @@ export default async function SettingsPage({
         <Separator />
 
         {/* Billing & Subscription */}
-        <PlanSection plan={profile.plan ?? 'free'} meetingsThisMonth={meetingsThisMonth ?? 0} totalMeetings={totalMeetings ?? 0} />
+        <PlanSection
+          plan={profile.plan ?? 'free'}
+          entitlement={entitlement}
+          totalMeetings={totalMeetings ?? 0}
+        />
 
         <Separator />
 

@@ -1,7 +1,6 @@
 'use client'
 
 import { Suspense } from 'react'
-import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   CalendarRange,
@@ -15,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import { createClient } from '@/lib/supabase/client'
+import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { CreateActionMenu } from '@/components/create-action-menu'
 import { Button } from '@/components/ui/button'
 import {
@@ -49,6 +49,7 @@ export function Navbar({
   canViewOrgScope = false,
 }: NavbarProps) {
   const router = useRouter()
+  const { push } = useNavigationTransition()
   const pathname = usePathname()
   const supabase = createClient()
   const newMeetingHref = activeCommitteeId
@@ -136,15 +137,15 @@ export function Navbar({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {profile.role === 'admin' && (
-              <DropdownMenuItem asChild>
-                <Link href="/admin"><ShieldCheck className="mr-2 h-4 w-4" />Admin</Link>
+              <DropdownMenuItem onSelect={() => { push('/admin') }}>
+                <ShieldCheck className="mr-2 h-4 w-4" />Admin
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem asChild>
-              <Link href="/settings"><Settings className="mr-2 h-4 w-4" />Settings</Link>
+            <DropdownMenuItem onSelect={() => { push('/settings') }}>
+              <Settings className="mr-2 h-4 w-4" />Settings
             </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/audit"><Shield className="mr-2 h-4 w-4" />Audit Trail</Link>
+            <DropdownMenuItem onSelect={() => { push('/audit') }}>
+              <Shield className="mr-2 h-4 w-4" />Audit Trail
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut}>
@@ -158,14 +159,14 @@ export function Navbar({
 }
 
 function ScopeToggle({ dashboardScope }: { dashboardScope?: DashboardScope }) {
-  const router = useRouter()
+  const { push } = useNavigationTransition()
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
   function handleScopeChange(nextScope: DashboardScope) {
     const params = new URLSearchParams(searchParams.toString())
     params.set('scope', nextScope)
-    router.push(`${pathname}?${params.toString()}`)
+    push(`${pathname}?${params.toString()}`)
   }
 
   return (

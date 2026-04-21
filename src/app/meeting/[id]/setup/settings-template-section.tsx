@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState, type ChangeEvent } from 'react'
 import { Check, Loader2, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
@@ -9,26 +10,37 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import type { TemplateSection } from './settings-template-model'
+import {
+  isExtractMinuteSectionTitle,
+  type TemplateSection,
+} from './settings-template-model'
 
 interface Props {
   section: TemplateSection
-  onSaveSection: (payload: {
-    prompt: string
-    templateFileName: string | null
-    templateFile: File | null
-    noTemplateNeeded: boolean
-  }) => void | Promise<void>
+  scope?: 'committee' | 'meeting'
+  committeeSettingsHref?: string | null
+  onSaveSection: (
+    payload: {
+      prompt: string
+      templateFileName: string | null
+      noTemplateNeeded: boolean
+    },
+    selectedFile: File | null,
+  ) => void | Promise<void>
   onTitleChange: (title: string) => void
   onImportToCurrentAgenda?: (file?: File) => Promise<void>
 }
 
 export function SettingsTemplateSection({
   section,
+  scope = 'committee',
+  committeeSettingsHref = null,
   onSaveSection,
   onTitleChange,
   onImportToCurrentAgenda,
 }: Props) {
+  const isMeetingMode = scope === 'meeting'
+  const isExtractMinuteSection = isExtractMinuteSectionTitle(section.title)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const [draftPrompt, setDraftPrompt] = useState(section.prompt)
   const [draftTemplateFileName, setDraftTemplateFileName] = useState<string | null>(section.templateFileName)
@@ -41,11 +53,15 @@ export function SettingsTemplateSection({
   const [fileInputKey, setFileInputKey] = useState(0)
   const [showPromptEdit, setShowPromptEdit] = useState(false)
 
+  function isDocxFileName(fileName: string | null | undefined) {
+    return Boolean(fileName?.trim().toLowerCase().endsWith('.docx'))
+  }
+
   function handleOpenEditor() {
     setDraftPrompt(section.prompt)
     setDraftTemplateFileName(section.templateFileName)
     setDraftNoTemplateNeeded(section.noTemplateNeeded)
-    setDraftTemplateFile(section.templateFile)
+    setDraftTemplateFile(null)
     setImportSuccessful(false)
     setImportStatusMessage(null)
     setImportStatusTone(null)
@@ -57,6 +73,11 @@ export function SettingsTemplateSection({
   function handleTemplateChange(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0]
     if (!selected) return
+    if (isExtractMinuteSection && !isDocxFileName(selected.name)) {
+      event.target.value = ''
+      toast.error('Extract Minute requires a DOCX template to preserve the exact format')
+      return
+    }
     setDraftTemplateFileName(selected.name)
     setDraftTemplateFile(selected)
     setDraftNoTemplateNeeded(false)
@@ -78,13 +99,20 @@ export function SettingsTemplateSection({
   }
 
   async function handleSaveSection() {
+    if (isExtractMinuteSection && !draftNoTemplateNeeded && !isDocxFileName(draftTemplateFileName)) {
+      toast.error('Extract Minute requires a DOCX template to preserve the exact format')
+      return
+    }
+
     try {
-      await onSaveSection({
-        prompt: draftPrompt,
-        templateFileName: draftTemplateFileName,
-        templateFile: draftNoTemplateNeeded ? null : draftTemplateFile,
-        noTemplateNeeded: draftNoTemplateNeeded,
-      })
+      await onSaveSection(
+        {
+          prompt: draftPrompt,
+          templateFileName: draftTemplateFileName,
+          noTemplateNeeded: draftNoTemplateNeeded,
+        },
+        draftNoTemplateNeeded ? null : draftTemplateFile,
+      )
       setIsEditorOpen(false)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save section')
@@ -103,6 +131,7 @@ export function SettingsTemplateSection({
       setImportSuccessful(true)
       setImportStatusTone('success')
       setImportStatusMessage('Import completed. You can now review formatting in Generate MoM.')
+      setIsEditorOpen(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to import template'
       setImportSuccessful(false)
@@ -141,6 +170,25 @@ export function SettingsTemplateSection({
             <DialogDescription>{section.title}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {isMeetingMode ? (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                <div className="flex items-center gap-2 font-medium">
+                  <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                    Meeting-only
+                  </span>
+                  <span>Applies to this meeting only</span>
+                </div>
+                {committeeSettingsHref ? (
+                  <p className="mt-1 leading-5 text-emerald-700">
+                    Committee-wide defaults are managed in{' '}
+                    <Link href={committeeSettingsHref} className="font-semibold underline underline-offset-2">
+                      Committee Settings
+                    </Link>.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="space-y-1.5">
               <label htmlFor={`template-${section.id}`} className="text-sm font-medium">
                 Upload Template
@@ -149,9 +197,17 @@ export function SettingsTemplateSection({
                 key={fileInputKey}
                 id={`template-${section.id}`}
                 type="file"
+                accept={isExtractMinuteSection
+                  ? '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                  : undefined}
                 disabled={draftNoTemplateNeeded}
                 onChange={handleTemplateChange}
               />
+              {isExtractMinuteSection ? (
+                <p className="text-xs text-zinc-500">
+                  Extract Minute uses exact-format DOCX injection, so this section only supports Word `.docx` templates.
+                </p>
+              ) : null}
               {draftNoTemplateNeeded ? (
                 <p className="text-xs text-zinc-500">No template needed for this section.</p>
               ) : draftTemplateFileName ? (
@@ -162,6 +218,11 @@ export function SettingsTemplateSection({
                   <p className="mt-0.5 text-sm font-medium text-emerald-900 break-all">
                     {draftTemplateFileName}
                   </p>
+                  {isExtractMinuteSection && !isDocxFileName(draftTemplateFileName) ? (
+                    <p className="mt-1 text-xs text-amber-700">
+                      Re-upload this section as a DOCX template before using Extract Minute.
+                    </p>
+                  ) : null}
                 </div>
               ) : (
                 <p className="text-xs text-zinc-500">No template uploaded.</p>

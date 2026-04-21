@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 
 import { AppShell } from '@/components/app-shell'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
+import { getActiveBuildId } from '@/lib/app-build'
 import { MomViewer } from './mom-viewer'
 
 export default async function ViewMomPage({
@@ -37,6 +38,7 @@ export default async function ViewMomPage({
       committees={activeSecretariats.length > 0 ? activeSecretariats : committees}
       activeCommitteeId={meeting.committee_id ?? undefined}
       containerClassName="max-w-6xl"
+      initialBuildId={getActiveBuildId()}
     >
       <MomViewer
         meetingId={id}

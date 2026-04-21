@@ -1,8 +1,11 @@
 'use client'
 
 import type { Agenda } from '@/lib/supabase/types'
-
-export const NO_PDF_MARKER = '__no_pdf__'
+import {
+  NO_PDF_MARKER,
+  resolveAgendaPdfSource,
+} from '@/lib/agenda-pdf'
+import { isAgendaHeading } from './agenda-structure'
 
 export type SetupTabValue = 'dashboard' | 'agenda' | 'generate' | 'itineraries' | 'settings'
 export type SetupWorkflowStepId = 'agenda' | 'meeting-pack' | 'recording'
@@ -40,13 +43,16 @@ export interface WorkspaceStatusInfo {
   tone: 'pending' | 'done'
 }
 
-export function isAgendaHeading(agendaNo: string) {
-  const normalized = agendaNo.trim()
-  return normalized.endsWith('.0') || /^\d+$/.test(normalized)
-}
-
 export function getWorkflowStatusStorageKey(meetingId: string) {
   return `meeting-setup-workflow:${meetingId}`
+}
+
+export function getWorkflowActiveStepStorageKey(meetingId: string) {
+  return `meeting-setup-active-step:${meetingId}`
+}
+
+export function isSetupWorkflowStepId(value: unknown): value is SetupWorkflowStepId {
+  return value === 'agenda' || value === 'meeting-pack' || value === 'recording'
 }
 
 export function buildAgendaStepAnalytics(agendas: Agenda[]): AgendaStepAnalytics {
@@ -95,7 +101,13 @@ export function buildMeetingPackStepAnalytics(agendas: Agenda[]): MeetingPackSte
   const missingItems: MeetingPackMissingItem[] = []
 
   for (const agenda of agendas) {
+    const resolvedPdf = resolveAgendaPdfSource(agendas, agenda.id)
     const slidePath = agenda.slide_pages?.trim() ?? ''
+
+    if (resolvedPdf.path) {
+      attachedPdfCount += 1
+      continue
+    }
 
     if (!slidePath) {
       missingPdfCount += 1
@@ -111,7 +123,11 @@ export function buildMeetingPackStepAnalytics(agendas: Agenda[]): MeetingPackSte
       continue
     }
 
-    attachedPdfCount += 1
+    missingPdfCount += 1
+    missingItems.push({
+      id: agenda.id,
+      label: `${agenda.agenda_no} - ${agenda.title}`,
+    })
   }
 
   return {
@@ -125,16 +141,17 @@ export function buildMeetingPackStepAnalytics(agendas: Agenda[]): MeetingPackSte
 
 export function deriveWorkflowAutoStatuses({
   agendas,
+  agendaLocked,
   hasExistingTranscript,
 }: {
   agendas: Agenda[]
+  agendaLocked: boolean
   hasExistingTranscript: boolean
 }): Record<SetupWorkflowStepId, StepStatus> {
-  const agendaAnalytics = buildAgendaStepAnalytics(agendas)
   const meetingPackAnalytics = buildMeetingPackStepAnalytics(agendas)
 
   return {
-    agenda: agendaAnalytics.totalAgendaHeaders > 0 || agendaAnalytics.totalTitles > 0 ? 'done' : 'pending',
+    agenda: agendaLocked ? 'done' : 'pending',
     'meeting-pack': meetingPackAnalytics.totalRows > 0 && meetingPackAnalytics.missingPdfCount === 0 ? 'done' : 'pending',
     recording: hasExistingTranscript ? 'done' : 'pending',
   }

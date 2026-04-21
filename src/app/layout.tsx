@@ -1,5 +1,7 @@
 import type { Metadata } from "next"
+import { Suspense } from "react"
 import { Inter, Space_Grotesk } from "next/font/google"
+import { NavigationTransitionProvider } from "@/components/navigation-transition-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import "./globals.css"
@@ -31,9 +33,11 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${bodyFont.variable} ${displayFont.variable} antialiased`}
       >
-        <TooltipProvider>
-          {children}
-        </TooltipProvider>
+        <NavigationTransitionProvider>
+          <Suspense fallback={<TooltipProvider>{children}</TooltipProvider>}>
+            <TooltipProvider>{children}</TooltipProvider>
+          </Suspense>
+        </NavigationTransitionProvider>
         <Toaster />
       </body>
     </html>

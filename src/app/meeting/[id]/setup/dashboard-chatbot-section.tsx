@@ -1,10 +1,10 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Bot, Loader2, MessageCircleQuestion, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Agenda } from '@/lib/supabase/types'
+import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { DualChatbot } from '@/components/dual-chatbot'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -32,7 +32,7 @@ export function DashboardChatbotSection({
   liveMinutesByAgenda,
   isGenerating,
 }: DashboardChatbotSectionProps) {
-  const router = useRouter()
+  const { push } = useNavigationTransition()
   const [selectedAgendaId, setSelectedAgendaId] = useState<string | null>(null)
   const [localMinutesByAgenda, setLocalMinutesByAgenda] = useState<Map<string, MinuteEntry>>(
     () => new Map(),
@@ -74,8 +74,9 @@ export function DashboardChatbotSection({
     const minuteId = previousMinute?.minuteId
 
     if (!previousMinute || !minuteId) {
-      toast.error('This minute is not ready for chatbot edits yet.')
-      return
+      const error = new Error('This minute is not ready for chatbot edits yet.')
+      toast.error(error.message)
+      throw error
     }
 
     setLocalMinutesByAgenda(prev => {
@@ -98,6 +99,7 @@ export function DashboardChatbotSection({
         return next
       })
       toast.error(error instanceof Error ? error.message : 'Failed to apply chatbot change')
+      throw error
     }
   }
 
@@ -133,7 +135,7 @@ export function DashboardChatbotSection({
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => router.push(`/meeting/${meetingId}/editor?agenda=${selectedAgendaIdValue}`)}
+            onClick={() => { push(`/meeting/${meetingId}/editor?agenda=${selectedAgendaIdValue}`) }}
           >
             <Search className="h-3.5 w-3.5" />
             Go Deeper
@@ -182,6 +184,7 @@ export function DashboardChatbotSection({
           </div>
           <div className="h-[520px]">
             <DualChatbot
+              meetingId={meetingId}
               agendaId={selectedAgendaIdValue}
               minuteContent={selectedMinute.content}
               onContentChange={handleAiChange}

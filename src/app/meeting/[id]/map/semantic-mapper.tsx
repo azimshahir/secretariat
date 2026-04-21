@@ -1,14 +1,15 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Link2, Scissors, Sparkles, Trash2, Users } from 'lucide-react'
+import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
+import { deleteJson, patchJson, postJson } from '@/lib/api/client'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import {
   DropdownMenu,
@@ -16,14 +17,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  applySpeakerMap,
-  assignSegment,
-  mergeSegments,
-  removeSegment,
-  splitSegment,
-  updateMeetingToGenerating,
-} from './actions'
 import type { Agenda, Transcript, TranscriptSegment } from '@/lib/supabase/types'
 
 interface Props {
@@ -34,7 +27,7 @@ interface Props {
 }
 
 export function SemanticMapper({ meetingId, transcript, agendas, existingSegments }: Props) {
-  const router = useRouter()
+  const { push } = useNavigationTransition()
   const [transcriptContent, setTranscriptContent] = useState(transcript?.content ?? '')
   const [segments, setSegments] = useState<TranscriptSegment[]>(existingSegments)
   const [showAssignMenu, setShowAssignMenu] = useState(false)
@@ -87,32 +80,24 @@ export function SemanticMapper({ meetingId, transcript, agendas, existingSegment
     if (speakerMatch) speaker = speakerMatch[1]
 
     try {
-      await assignSegment(
-        transcript.id,
-        agendaId,
-        selection.text,
-        speaker,
-        selection.start,
-        selection.end,
+      const result = await postJson<{ ok: true; segment: TranscriptSegment }>(
+        `/api/meeting/${meetingId}/map`,
+        {
+          action: 'assign_segment',
+          transcriptId: transcript.id,
+          agendaId,
+          content: selection.text,
+          speaker,
+          startOffset: selection.start,
+          endOffset: selection.end,
+        },
       )
+      setSegments(prev => [...prev, result.segment])
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to assign segment')
       return
     }
 
-    // Optimistic UI update
-    const newSegment: TranscriptSegment = {
-      id: crypto.randomUUID(),
-      transcript_id: transcript.id,
-      agenda_id: agendaId,
-      content: selection.text,
-      speaker,
-      start_offset: selection.start,
-      end_offset: selection.end,
-      sort_order: segments.filter(s => s.agenda_id === agendaId).length,
-      created_at: new Date().toISOString(),
-    }
-    setSegments(prev => [...prev, newSegment])
     setSelection(null)
     window.getSelection()?.removeAllRanges()
     toast.success('Segment assigned')
@@ -121,7 +106,7 @@ export function SemanticMapper({ meetingId, transcript, agendas, existingSegment
   async function handleRemove(segmentId: string) {
     setSegments(prev => prev.filter(s => s.id !== segmentId))
     try {
-      await removeSegment(segmentId)
+      await deleteJson<{ ok: true }>(`/api/meeting/${meetingId}/map`, { segmentId })
       toast.success('Segment removed')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to remove segment')
@@ -131,9 +116,11 @@ export function SemanticMapper({ meetingId, transcript, agendas, existingSegment
   async function handleGenerate() {
     setGenerating(true)
     try {
-      await updateMeetingToGenerating(meetingId)
+      await patchJson<{ ok: true }>(`/api/meeting/${meetingId}/status`, {
+        status: 'generating',
+      })
       toast.success('Starting minute generation')
-      router.push(`/meeting/${meetingId}/editor`)
+      push(`/meeting/${meetingId}/editor`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to start generation')
       setGenerating(false)
@@ -154,16 +141,19 @@ export function SemanticMapper({ meetingId, transcript, agendas, existingSegment
     const second = segment.content.slice(splitIndex).trim()
     if (!first || !second) return
     try {
-      await splitSegment(segment.id, splitIndex)
+      const result = await postJson<{
+        ok: true
+        updatedSegment: TranscriptSegment
+        insertedSegment: TranscriptSegment
+      }>(`/api/meeting/${meetingId}/map`, {
+        action: 'split_segment',
+        segmentId: segment.id,
+        splitIndex,
+      })
       setSegments(prev => [
         ...prev.filter(s => s.id !== segment.id),
-        { ...segment, content: first },
-        {
-          ...segment,
-          id: crypto.randomUUID(),
-          content: second,
-          sort_order: (segment.sort_order ?? 0) + 1,
-        },
+        result.updatedSegment,
+        result.insertedSegment,
       ])
       toast.success('Segment split into two blocks')
     } catch (error) {
@@ -174,10 +164,18 @@ export function SemanticMapper({ meetingId, transcript, agendas, existingSegment
   async function handleMerge(segment: TranscriptSegment, nextSegment: TranscriptSegment | undefined) {
     if (!nextSegment) return
     try {
-      await mergeSegments(segment.id, nextSegment.id)
+      const result = await postJson<{
+        ok: true
+        mergedSegment: TranscriptSegment
+        removedSegmentId: string
+      }>(`/api/meeting/${meetingId}/map`, {
+        action: 'merge_segments',
+        firstSegmentId: segment.id,
+        secondSegmentId: nextSegment.id,
+      })
       setSegments(prev => prev
-        .filter(s => s.id !== nextSegment.id)
-        .map(s => (s.id === segment.id ? { ...s, content: `${segment.content}\n${nextSegment.content}` } : s)))
+        .filter(s => s.id !== result.removedSegmentId)
+        .map(s => (s.id === result.mergedSegment.id ? result.mergedSegment : s)))
       toast.success('Segments merged')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to merge segments')
@@ -192,7 +190,15 @@ export function SemanticMapper({ meetingId, transcript, agendas, existingSegment
   async function handleApplySpeakerMap() {
     if (!transcript) return
     try {
-      const updated = await applySpeakerMap(transcript.id, speakerMapDraft)
+      const result = await postJson<{ ok: true; content: string }>(
+        `/api/meeting/${meetingId}/map`,
+        {
+          action: 'apply_speaker_map',
+          transcriptId: transcript.id,
+          speakerMap: speakerMapDraft,
+        },
+      )
+      const updated = result.content
       setTranscriptContent(updated)
       setSegments(prev => prev.map(segment => ({
         ...segment,

@@ -1,6 +1,5 @@
 'use client'
 
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
@@ -12,9 +11,12 @@ import type { AgendaTimelineRow } from './agenda-timeline-row'
 interface GenerateDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  mode?: 'generate' | 'rearrange'
   meetingId: string
   existingAgendas: Agenda[]
   hasExistingTranscript: boolean
+  hasSavedTimeline?: boolean
+  existingTimelineRows?: AgendaTimelineRow[]
   initialMeetingRules: string
   skippedAgendaIds?: string[]
   generationState: MomGenerationState
@@ -27,9 +29,12 @@ interface GenerateDialogProps {
 export function GenerateDialog({
   open,
   onOpenChange,
+  mode = 'generate',
   meetingId,
   existingAgendas,
   hasExistingTranscript,
+  hasSavedTimeline = false,
+  existingTimelineRows = [],
   initialMeetingRules,
   skippedAgendaIds,
   generationState,
@@ -38,21 +43,29 @@ export function GenerateDialog({
   isGenerateDisabled,
   generateDisabledReason,
 }: GenerateDialogProps) {
+  const title = mode === 'rearrange'
+    ? 'Rearrange Transcript Timeline'
+    : 'Generate Timestamp & Draft MoM'
+  const description = mode === 'rearrange'
+    ? 'Rebuild the transcript timeline from the saved transcript, adjust the agenda mapping, then save or generate once the timestamps look right.'
+    : 'Build draft minutes from the transcript flow here, then import the successful drafts into the current MoM once you are happy with the results.'
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Generate Timestamp & MoM</DialogTitle>
-          <DialogDescription>
-            Use the same generation options from Dashboard, then analyze transcript timing or regenerate minutes from here.
-          </DialogDescription>
+      <DialogContent className="flex max-h-[92vh] w-[min(100vw-2rem,1100px)] flex-col overflow-hidden p-0 sm:max-w-[1100px]">
+        <DialogHeader className="border-b border-border/70 px-6 py-5 pr-14">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[70vh]">
-          <div className="pr-4 pb-1">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="px-6 pb-6 pt-5">
             <MeetingGenerationWorkflow
               meetingId={meetingId}
               existingAgendas={existingAgendas}
               hasExistingTranscript={hasExistingTranscript}
+              hasSavedTimeline={hasSavedTimeline}
+              existingTimelineRows={existingTimelineRows}
+              intent={mode}
               initialMeetingRules={initialMeetingRules}
               skippedAgendaIds={skippedAgendaIds}
               generationState={generationState}
@@ -63,7 +76,7 @@ export function GenerateDialog({
               generateDisabledReason={generateDisabledReason}
             />
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   )

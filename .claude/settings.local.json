@@ -39,7 +39,21 @@
       "Bash(cd \"C:/Users/anis/Desktop/Projects/Secretariat.my\" && find src/app/settings -name \"*.ts\" -o -name \"*.tsx\" | while read f; do wc -l \"$f\"; done)",
       "Bash(find /c/Users/anis/Desktop/Projects/Secretariat.my/src -name \"*.tsx\" -o -name \"*.ts\" | grep -v node_modules | grep -v 'components/ui/' | while read f; do wc -l \"$f\"; done | sort -rn | head -30)",
       "Bash(cd:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(vercel --version)",
+      "Bash(vercel logs:*)",
+      "Bash(vercel ls:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(node:*)",
+      "Bash(vercel env:*)",
+      "Bash(git diff:*)",
+      "Bash(npx vercel:*)",
+      "Bash(kill %1)",
+      "Bash(xargs -I {} bash -c 'echo \"=== {} ===\" && head -50 {}')",
+      "Bash(python -m json.tool)",
+      "Bash(npx tsx *)"
     ]
   }
 }

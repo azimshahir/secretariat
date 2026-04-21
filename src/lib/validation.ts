@@ -40,13 +40,51 @@ export const formatTemplateSchema = z.object({
 
 export const formatPromptTextSchema = z.string().min(1).max(200_000)
 export const formatAdditionalInfoSchema = z.string().max(50_000).optional().default('')
+export const minutePlaybookVariantKeySchema = z.enum(['default', 'with_action', 'without_action'])
+export const minutePlaybookModeSchema = z.enum(['resolution_paths', 'legacy_full'])
+export const minuteMindScopeTypeSchema = z.enum(['agenda', 'meeting', 'committee'])
+export const minuteMindEntryTypeSchema = z.enum([
+  'formatting_rule',
+  'writing_preference',
+  'committee_fact',
+  'exception',
+])
 
 export const saveAgendaFormattingSchema = z.object({
   agendaId: uuidSchema,
   committeeId: uuidSchema,
   name: z.string().min(1).max(120),
-  promptText: formatPromptTextSchema,
+  playbookMode: minutePlaybookModeSchema.optional().default('resolution_paths'),
+  resolutionPathsEnabled: z.boolean().optional().default(false),
+  variants: z.array(z.object({
+    variantKey: minutePlaybookVariantKeySchema,
+    promptText: z.string().max(200_000).optional().default(''),
+  })).min(1),
   additionalInfo: formatAdditionalInfoSchema,
+  saveAsCommitteePlaybook: z.boolean().optional().default(false),
+})
+
+export const minutePlaybookLibrarySchema = z.object({
+  committeeId: uuidSchema,
+  playbookId: uuidSchema.optional().nullable(),
+  name: z.string().min(1).max(120),
+  defaultVariantKey: minutePlaybookVariantKeySchema.optional().default('default'),
+  playbookMode: minutePlaybookModeSchema.optional().default('resolution_paths'),
+  resolutionPathsEnabled: z.boolean().optional().default(false),
+  variants: z.array(z.object({
+    variantKey: minutePlaybookVariantKeySchema,
+    promptText: z.string().max(200_000).optional().default(''),
+  })).min(1),
+})
+
+export const minuteMindEntrySchema = z.object({
+  scopeType: minuteMindScopeTypeSchema,
+  entryType: minuteMindEntryTypeSchema,
+  title: z.string().min(1).max(160),
+  content: z.string().min(1).max(12_000),
+  appliesToGeneration: z.boolean().optional().default(true),
+  appliesToChat: z.boolean().optional().default(true),
+  isActive: z.boolean().optional().default(true),
 })
 
 export const glossarySchema = z.object({
@@ -69,6 +107,7 @@ export const generateConfigSchema = z.object({
   excludeDeckPoints: z.boolean().optional().default(false),
   requireCompleteFormatting: z.boolean().optional(),
   skippedAgendaIds: z.array(z.string().uuid()).optional().default([]),
+  forcedResolvedOutcomeModes: z.record(uuidSchema, z.literal('closed')).optional().default({}),
 })
 
 export const timecodeSchema = z.string().regex(/^\d{1,2}:[0-5]\d:[0-5]\d$/, 'Invalid timecode (HH:MM:SS)')
@@ -85,10 +124,12 @@ export const segmentationPreviewRowSchema = z.object({
   agendaId: uuidSchema,
   agendaNo: z.string().min(1),
   agendaTitle: z.string().min(1),
-  startSec: z.number().int().min(0),
-  endSec: z.number().int().min(1),
+  startSec: z.number().int().min(0).nullable(),
+  endSec: z.number().int().min(1).nullable(),
   confidence: z.number().min(0).max(1),
   reason: z.string().max(400).default(''),
+  mappingStatus: z.enum(['explicit', 'semantic', 'suggested', 'unresolved']),
+  requiresReview: z.boolean(),
 })
 
 export const segmentationEditableRowSchema = z.object({
@@ -100,5 +141,6 @@ export const segmentationEditableRowSchema = z.object({
 export const confirmAgendaSegmentationInputSchema = z.object({
   meetingId: uuidSchema,
   transcriptId: uuidSchema,
-  rows: z.array(segmentationEditableRowSchema).min(1, 'At least one segmentation row is required'),
+  rows: z.array(segmentationEditableRowSchema),
+  closureRows: z.array(segmentationEditableRowSchema).optional().default([]),
 })

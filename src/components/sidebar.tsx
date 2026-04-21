@@ -138,23 +138,27 @@ export function Sidebar({
                       href={href}
                       title={c.name}
                       className={cn(
-                        'flex items-center px-2 py-2.5 text-[0.84rem] transition-all duration-200',
-                        collapsed ? 'justify-center rounded-[12px]' : 'justify-between rounded-[13px]',
+                        'flex px-2 py-2.5 text-[0.84rem] transition-all duration-200',
+                        collapsed ? 'items-center justify-center rounded-[12px]' : 'items-start justify-between rounded-[13px]',
                         active
                           ? 'bg-primary text-primary-foreground shadow-[0_18px_40px_-28px_rgba(8,98,98,0.85)]'
                           : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
                       )}
                     >
-                      <span className={cn('flex items-center', collapsed ? 'justify-center' : 'gap-3')}>
+                      <span className={cn('flex min-w-0', collapsed ? 'items-center justify-center' : 'items-start gap-3')}>
                         <span className={cn(
-                          'flex h-8 w-8 items-center justify-center rounded-[10px] text-[0.78rem] font-semibold',
+                          'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-[0.78rem] font-semibold',
                           active ? 'bg-white/14 text-white' : 'bg-primary/8 text-primary'
                         )}>
                           {c.name.charAt(0).toUpperCase()}
                         </span>
-                        {!collapsed ? <span className="truncate">{c.name}</span> : null}
+                        {!collapsed ? (
+                          <span className="line-clamp-2 min-w-0 max-w-[138px] text-[0.78rem] leading-4">
+                            {c.name}
+                          </span>
+                        ) : null}
                       </span>
-                      {!collapsed && active ? <Sparkles className="h-3.5 w-3.5" /> : null}
+                      {!collapsed && active ? <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : null}
                     </Link>
                   </motion.div>
                 )

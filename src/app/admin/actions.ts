@@ -3,8 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import {
-  AI_TASKS,
-  type AiTask,
+  AI_ADMIN_TASKS,
+  type AdminAiTask,
   type EffectiveAiConfig,
   isSupportedProviderModel,
 } from '@/lib/ai/catalog'
@@ -23,10 +23,10 @@ async function requireAdmin() {
 }
 
 export async function updateOrganizationAiModels(input: {
-  configs: Record<AiTask, EffectiveAiConfig>
+  configs: Record<AdminAiTask, EffectiveAiConfig>
 }) {
   const { supabase, userId, organizationId } = await requireAdmin()
-  const configs = AI_TASKS.reduce((next, task) => {
+  const configs = AI_ADMIN_TASKS.reduce((next, task) => {
     const config = input.configs[task]
     const model = config?.model?.trim() ?? ''
 
@@ -39,7 +39,7 @@ export async function updateOrganizationAiModels(input: {
       model,
     }
     return next
-  }, {} as Record<AiTask, EffectiveAiConfig>)
+  }, {} as Record<AdminAiTask, EffectiveAiConfig>)
 
   const defaultConfig = configs.generate_mom
 
@@ -52,8 +52,6 @@ export async function updateOrganizationAiModels(input: {
         model: defaultConfig.model,
         generate_mom_provider: configs.generate_mom.provider,
         generate_mom_model: configs.generate_mom.model,
-        go_deeper_ask_provider: configs.go_deeper_ask.provider,
-        go_deeper_ask_model: configs.go_deeper_ask.model,
         go_deeper_agent_provider: configs.go_deeper_agent.provider,
         go_deeper_agent_model: configs.go_deeper_agent.model,
         generate_itineraries_provider: configs.generate_itineraries.provider,

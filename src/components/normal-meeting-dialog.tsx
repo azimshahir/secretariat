@@ -1,11 +1,15 @@
 'use client'
 
+import { useTransition } from 'react'
+import { toast } from 'sonner'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { Loader2 } from 'lucide-react'
+import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { Input } from '@/components/ui/input'
-import { createMeeting } from '@/actions/meeting'
-import { FormSubmitButton } from '@/components/form-submit-button'
+import { postJson } from '@/lib/api/client'
+import { Button } from '@/components/ui/button'
 import type { Committee } from '@/lib/supabase/types'
 
 interface Props {
@@ -23,6 +27,8 @@ export function NormalMeetingDialog({
   committeeName,
   committees = [],
 }: Props) {
+  const { push } = useNavigationTransition()
+  const [pending, startTransition] = useTransition()
   const today = new Date().toISOString().slice(0, 10)
   const title = committeeName ? `New ${committeeName} Meeting` : 'New Meeting'
   const description = committeeName
@@ -38,7 +44,33 @@ export function NormalMeetingDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <form action={createMeeting} className="space-y-4">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            const formData = new FormData(event.currentTarget)
+            startTransition(async () => {
+              try {
+                const result = await postJson<{
+                  ok: true
+                  meetingId: string
+                  redirectPath: string
+                }>('/api/meetings', {
+                  title: String(formData.get('title') ?? ''),
+                  meetingDate: String(formData.get('meetingDate') ?? ''),
+                  committeeId: String(formData.get('committeeId') ?? committeeId ?? ''),
+                  agendaItems: [],
+                })
+                onOpenChange(false)
+                push(result.redirectPath)
+              } catch (error) {
+                toast.error(
+                  error instanceof Error ? error.message : 'Failed to create meeting',
+                )
+              }
+            })
+          }}
+          className="space-y-4"
+        >
           {committeeId ? (
             <input type="hidden" name="committeeId" value={committeeId} />
           ) : (
@@ -87,11 +119,19 @@ export function NormalMeetingDialog({
             />
           </div>
           <DialogFooter>
-            <FormSubmitButton
-              idleLabel="Create Meeting"
-              pendingLabel="Creating..."
+            <Button
+              type="submit"
               disabled={!committeeId && committees.length === 0}
-            />
+            >
+              {pending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                'Create Meeting'
+              )}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

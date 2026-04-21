@@ -1,7 +1,3 @@
-import mammoth from 'mammoth'
-import { PDFParse } from 'pdf-parse'
-import { transcribeWithDiarization } from '@/lib/diarization'
-
 function stripVtt(vtt: string) {
   return vtt
     .replace(/^WEBVTT.*$/gim, '')
@@ -17,13 +13,25 @@ function buildSpeakerMap(transcript: string) {
   return Object.fromEntries(unique.map(key => [key, key]))
 }
 
-export async function extractTranscript(file: File) {
+export interface MediaTranscriptProcessingOptions {
+  sttModel: string
+  lexiconPrompt?: string
+  useDiarizedStt?: boolean
+}
+
+export async function extractTranscript(
+  file: File,
+  options?: { media?: MediaTranscriptProcessingOptions },
+) {
   const name = file.name.toLowerCase()
   const ext = name.split('.').pop() ?? ''
   let content = ''
+  let rawContent: string | null = null
   let diarizationApplied = false
+  let processingMetadata: Record<string, unknown> = {}
 
   if (ext === 'docx') {
+    const mammoth = (await import('mammoth')).default
     const result = await mammoth.extractRawText({ buffer: Buffer.from(await file.arrayBuffer()) })
     content = result.value.trim()
   } else if (ext === 'vtt') {
@@ -31,9 +39,19 @@ export async function extractTranscript(file: File) {
   } else if (ext === 'txt') {
     content = (await file.text()).trim()
   } else if (file.type.startsWith('audio/') || file.type.startsWith('video/')) {
-    const media = await transcribeWithDiarization(file)
+    const mediaOptions = options?.media
+    if (!mediaOptions) {
+      throw new Error('Media transcript options are required for audio/video transcription')
+    }
+    const { transcribeMeetingMedia } = await import('@/lib/diarization')
+    const media = await transcribeMeetingMedia(file, mediaOptions)
     content = media.content
+    rawContent = media.rawContent
     diarizationApplied = media.diarizationApplied
+    processingMetadata = {
+      sttModel: media.sttModel,
+      diarizationApplied: media.diarizationApplied,
+    }
   } else {
     throw new Error('Unsupported transcript file. Use .docx/.vtt/.txt/audio/video')
   }
@@ -41,13 +59,16 @@ export async function extractTranscript(file: File) {
   if (!content) throw new Error('Transcript content is empty')
   return {
     content,
+    rawContent,
     speakerMap: buildSpeakerMap(content),
     sourceExt: ext || file.type,
     diarizationApplied,
+    processingMetadata,
   }
 }
 
 export async function extractSlideText(file: File) {
+  const { PDFParse } = await import('pdf-parse')
   const parser = new PDFParse({ data: Buffer.from(await file.arrayBuffer()) })
   try {
     const text = await parser.getText()

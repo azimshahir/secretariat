@@ -61,7 +61,7 @@ export async function getCommitteeGenerationSettings(committeeId: string): Promi
 
   const { data: settings, error: settingsError } = await supabase
     .from('committee_generation_settings')
-    .select('default_format_template_id, default_format_source_name, minute_instruction')
+    .select('default_format_template_id, default_format_source_name, minute_instruction, template_sections')
     .eq('committee_id', parsedCommitteeId)
     .maybeSingle()
   if (settingsError) {
@@ -72,6 +72,7 @@ export async function getCommitteeGenerationSettings(committeeId: string): Promi
         defaultFormatTemplateText: null,
         defaultFormatSourceName: null,
         minuteInstruction: '',
+        templateSections: [],
       }
     }
     throw new Error(settingsError.message)
@@ -95,10 +96,11 @@ export async function getCommitteeGenerationSettings(committeeId: string): Promi
     defaultFormatTemplateText,
     defaultFormatSourceName: settings?.default_format_source_name ?? null,
     minuteInstruction: settings?.minute_instruction ?? '',
+    templateSections: Array.isArray(settings?.template_sections) ? settings.template_sections : [],
   }
 }
 
-export async function saveCommitteeMinuteInstruction(committeeId: string, instruction: string) {
+async function persistCommitteeMinuteInstruction(committeeId: string, instruction: string) {
   const parsedCommitteeId = uuidSchema.parse(committeeId)
   const parsedInstruction = committeeMinuteInstructionSchema.parse(instruction).trim()
 
@@ -128,4 +130,21 @@ export async function saveCommitteeMinuteInstruction(committeeId: string, instru
     action: 'committee_minute_instruction_updated',
     details: { committee_id: parsedCommitteeId },
   })
+}
+
+export async function saveCommitteeMinuteInstruction(
+  committeeId: string,
+  instruction: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await persistCommitteeMinuteInstruction(committeeId, instruction)
+    return { ok: true }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to save minute instruction'
+    console.error('[saveCommitteeMinuteInstruction] failed:', {
+      committeeId,
+      message,
+    })
+    return { ok: false, message }
+  }
 }

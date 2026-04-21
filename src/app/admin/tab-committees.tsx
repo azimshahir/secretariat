@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Pencil, Upload, Trash2, FileText, Loader2, Check, X, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -11,11 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
-import { saveCommittee } from '@/app/settings/actions'
-import {
-  uploadCommitteeRagDocument,
-  deleteCommitteeRagDocument,
-} from '@/app/meeting/[id]/setup/rag-actions'
+import { deleteJson, postFormData } from '@/lib/api/client'
 
 interface Committee {
   id: string
@@ -43,19 +40,32 @@ const CATEGORY_COLORS: Record<string, string> = {
 }
 
 function PersonaPanel({ committee }: { committee: Committee }) {
+  const router = useRouter()
   const [editing, setEditing] = useState(false)
   const [pending, startTransition] = useTransition()
 
   function handleSubmit(fd: FormData) {
     startTransition(async () => {
-      try { await saveCommittee(fd); toast.success('Persona updated'); setEditing(false) }
-      catch { toast.error('Failed to save') }
+      try {
+        await postFormData<{ ok: true }>('/api/settings/committee', fd)
+        toast.success('Persona updated')
+        setEditing(false)
+        router.refresh()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to save')
+      }
     })
   }
 
   if (editing) {
     return (
-      <form action={handleSubmit} className="space-y-3">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          handleSubmit(new FormData(event.currentTarget))
+        }}
+        className="space-y-3"
+      >
         <input type="hidden" name="id" value={committee.id} />
         <Input name="name" defaultValue={committee.name} placeholder="Committee name" required />
         <Input name="slug" defaultValue={committee.slug} placeholder="committee-slug" required />
@@ -86,6 +96,7 @@ function PersonaPanel({ committee }: { committee: Committee }) {
 }
 
 function RagPanel({ committee }: { committee: Committee }) {
+  const router = useRouter()
   const [docs, setDocs] = useState(committee.rag_docs)
   const [uploading, startUpload] = useTransition()
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -98,10 +109,26 @@ function RagPanel({ committee }: { committee: Committee }) {
     if (!file || file.size === 0) { toast.error('Select a PDF file'); return }
     startUpload(async () => {
       try {
-        const doc = await uploadCommitteeRagDocument(committee.id, category, docName, file)
+        const payload = new FormData()
+        payload.set('committeeId', committee.id)
+        payload.set('category', category)
+        payload.set('documentName', docName)
+        payload.set('file', file)
+        const result = await postFormData<{
+          ok: true
+          document: {
+            id: string
+            category: string
+            documentName: string
+            fileName: string
+            createdAt: string
+          }
+        }>('/api/admin/committee-rag', payload)
+        const doc = result.document
         setDocs(prev => [{ id: doc.id, category: doc.category, document_name: doc.documentName, file_name: doc.fileName, created_at: doc.createdAt }, ...prev])
         toast.success('Document uploaded & chunked')
         formRef.current?.reset()
+        router.refresh()
       } catch (e) { toast.error(e instanceof Error ? e.message : 'Upload failed') }
     })
   }
@@ -109,16 +136,26 @@ function RagPanel({ committee }: { committee: Committee }) {
   async function handleDelete(docId: string) {
     setDeleting(docId)
     try {
-      await deleteCommitteeRagDocument(docId)
+      await deleteJson<{ ok: true }>('/api/admin/committee-rag', {
+        documentId: docId,
+      })
       setDocs(prev => prev.filter(d => d.id !== docId))
       toast.success('Document removed')
+      router.refresh()
     } catch { toast.error('Failed to delete') }
     finally { setDeleting(null) }
   }
 
   return (
     <div className="space-y-4">
-      <form ref={formRef} action={handleUpload} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] items-end">
+      <form
+        ref={formRef}
+        onSubmit={(event) => {
+          event.preventDefault()
+          handleUpload(new FormData(event.currentTarget))
+        }}
+        className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] items-end"
+      >
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Document File</label>
           <Input name="file" type="file" accept=".pdf,.docx" required disabled={uploading} />

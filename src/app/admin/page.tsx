@@ -1,11 +1,14 @@
 import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { AppShell } from '@/components/app-shell'
-import { updateCustomRequestStatus } from '@/actions/admin-custom-requests'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
+import { getActiveBuildId } from '@/lib/app-build'
 import { AI_PROVIDER_MODELS } from '@/lib/ai/catalog'
-import { getEffectiveAiConfigsForOrganization } from '@/lib/ai/model-config'
+import { getPlanAiConfigMatrixForOrganization } from '@/lib/ai/model-config'
+import { getTranscriptIntelligencePresetForOrganization } from '@/lib/ai/transcript-intelligence-server'
 import { INDUSTRY_CATEGORIES } from '@/lib/ai/persona-templates'
+import { listCurrentMonthUsageForOrganization } from '@/lib/subscription/entitlements'
+import { getSubscriptionSchemaCompatibility } from '@/lib/subscription/schema-compat'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { AdminTabs } from './admin-tabs'
 
@@ -16,6 +19,8 @@ export default async function AdminPage() {
   if (profile.role !== 'admin') redirect('/')
 
   const orgId = profile.organization_id
+  const admin = createAdminClient()
+  const subscriptionCompatibility = await getSubscriptionSchemaCompatibility({ organizationId: orgId })
 
   const committeeList = committees
 
@@ -54,26 +59,74 @@ export default async function AdminPage() {
   }))
 
   // Fetch org users with emails
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, full_name, role, plan, created_at')
-    .order('created_at')
+  const profilesQuery = subscriptionCompatibility.profilesCreditBalanceAvailable
+    ? admin
+        .from('profiles')
+        .select('id, full_name, role, plan, credit_balance, created_at')
+        .eq('organization_id', orgId)
+    : admin
+        .from('profiles')
+        .select('id, full_name, role, plan, created_at')
+        .eq('organization_id', orgId)
+  const { data: profiles, error: profilesError } = await profilesQuery.order('created_at')
+  if (profilesError) {
+    console.error('Failed to load organization users for admin dashboard', profilesError)
+  }
   const userIds = (profiles ?? []).map(p => p.id)
   let emailMap: Record<string, string> = {}
   if (userIds.length > 0) {
-    const admin = createAdminClient()
-    const { data: authData } = await admin.auth.admin.listUsers({ perPage: 1000 })
-    if (authData?.users) {
-      emailMap = Object.fromEntries(authData.users.map(u => [u.id, u.email ?? '']))
+    try {
+      const { data: authData } = await admin.auth.admin.listUsers({ perPage: 1000 })
+      if (authData?.users) {
+        emailMap = Object.fromEntries(authData.users.map(u => [u.id, u.email ?? '']))
+      }
+    } catch (error) {
+      console.error('Failed to load auth user emails for admin dashboard', error)
     }
   }
+  let usageRows = [] as Awaited<ReturnType<typeof listCurrentMonthUsageForOrganization>>
+  if (subscriptionCompatibility.usageTrackingAvailable) {
+    try {
+      usageRows = await listCurrentMonthUsageForOrganization({ organizationId: orgId })
+    } catch (error) {
+      console.error('Failed to load subscription usage rows for admin dashboard', error)
+      usageRows = []
+    }
+  }
+  const usageByUserId = new Map(usageRows.map(row => [row.user_id, row]))
+  const totalWalletCredits = subscriptionCompatibility.profilesCreditBalanceAvailable
+    ? (profiles ?? []).reduce((sum, profileRow) => sum + ((profileRow as { credit_balance?: number | null }).credit_balance ?? 0), 0)
+    : 0
+  const totalCreditsConsumedThisMonth = usageRows.reduce((sum, row) => sum + (row.credits_consumed ?? 0), 0)
+
   const orgUsers = (profiles ?? []).map(p => ({
     id: p.id, full_name: p.full_name, email: emailMap[p.id] ?? '',
-    role: p.role, plan: p.plan ?? 'free', created_at: p.created_at,
+    role: p.role,
+    plan: p.plan ?? 'free',
+    credit_balance: subscriptionCompatibility.profilesCreditBalanceAvailable
+      ? ((p as { credit_balance?: number | null }).credit_balance ?? 0)
+      : 0,
+    usage: usageByUserId.get(p.id) ?? null,
+    created_at: p.created_at,
   }))
 
+  if (!orgUsers.some(orgUser => orgUser.id === user.id)) {
+    orgUsers.unshift({
+      id: user.id,
+      full_name: profile.full_name,
+      email: user.email ?? '',
+      role: profile.role,
+      plan: profile.plan ?? 'free',
+      credit_balance: subscriptionCompatibility.profilesCreditBalanceAvailable
+        ? (typeof profile.credit_balance === 'number' ? profile.credit_balance : 0)
+        : 0,
+      usage: usageByUserId.get(user.id) ?? null,
+      created_at: profile.created_at,
+    })
+  }
+
   // Plan breakdown for subscription tab
-  const planBreakdown = { free: 0, pro: 0, max: 0 }
+  const planBreakdown = { free: 0, basic: 0, pro: 0, premium: 0 }
   for (const p of profiles ?? []) {
     const plan = (p.plan ?? 'free') as keyof typeof planBreakdown
     if (plan in planBreakdown) planBreakdown[plan]++
@@ -127,8 +180,7 @@ export default async function AdminPage() {
   }))
 
   // Custom industry requests
-  const admin2 = createAdminClient()
-  const { data: customRequests } = await admin2
+  const { data: customRequests } = await admin
     .from('custom_industry_requests')
     .select('id, custom_industry, detected_industry, custom_meeting_type, selected_industry, selected_meeting_type, status, admin_notes, created_at, user_id')
     .eq('organization_id', orgId)
@@ -147,7 +199,21 @@ export default async function AdminPage() {
     user_name: (req.user_id ? profileMap[req.user_id] : null) ?? null,
   }))
 
-  const aiConfigs = await getEffectiveAiConfigsForOrganization(orgId)
+  let adminAiConfigs: Awaited<ReturnType<typeof getPlanAiConfigMatrixForOrganization>>
+  try {
+    adminAiConfigs = await getPlanAiConfigMatrixForOrganization(orgId)
+  } catch (error) {
+    console.error('Failed to load plan AI config matrix for admin dashboard', error)
+    adminAiConfigs = await getPlanAiConfigMatrixForOrganization(null)
+  }
+
+  let transcriptPreset: Awaited<ReturnType<typeof getTranscriptIntelligencePresetForOrganization>>
+  try {
+    transcriptPreset = await getTranscriptIntelligencePresetForOrganization(orgId)
+  } catch (error) {
+    console.error('Failed to load transcript intelligence preset for admin dashboard', error)
+    transcriptPreset = 'balanced'
+  }
 
   return (
     <AppShell
@@ -157,6 +223,7 @@ export default async function AdminPage() {
       title="Admin Dashboard"
       description="Manage users, subscriptions, committee knowledge bases, and organization-wide settings."
       containerClassName="max-w-[1500px]"
+      initialBuildId={getActiveBuildId()}
     >
       <Suspense fallback={null}>
         <AdminTabs
@@ -169,14 +236,18 @@ export default async function AdminPage() {
           recentActivity={recentActivity}
           orgUsers={orgUsers}
           planBreakdown={planBreakdown}
+          totalWalletCredits={totalWalletCredits}
+          totalCreditsConsumedThisMonth={totalCreditsConsumedThisMonth}
           monthlyMeetings={monthlyMeetings}
           committees={committeesData}
           categories={[...INDUSTRY_CATEGORIES]}
-          aiConfigs={aiConfigs}
+          aiConfigs={adminAiConfigs}
+          transcriptPreset={transcriptPreset}
           aiOptions={AI_PROVIDER_MODELS}
           auditLogs={formattedLogs}
           customRequests={customRequestsFormatted}
-          onUpdateCustomRequestStatus={updateCustomRequestStatus}
+          subscriptionSetupPending={subscriptionCompatibility.subscriptionSetupPending}
+          planAiSetupPending={!subscriptionCompatibility.planAiMatrixAvailable}
         />
       </Suspense>
     </AppShell>

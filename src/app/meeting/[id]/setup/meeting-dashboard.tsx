@@ -1,44 +1,57 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Building2, CalendarDays, LayoutPanelTop } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { AgendaEditor } from './agenda-editor'
-import { DashboardTab } from './dashboard-tab'
-import { ItinerariesTab } from './itineraries-tab'
-import { MomGenerator } from './mom-generator'
-import { RagTab } from './rag-tab'
-import { MatchSpeakerSection } from './match-speaker-section'
-import { SettingsTemplateTab } from './settings-template-tab'
-import { RulesSection } from './rules-section'
-import { useMomGenerationQueue } from './use-mom-generation-queue'
-import { createInitialTemplateGroups, type TemplateGroup } from './settings-template-model'
-import type { CommitteeGenerationSettingsResult } from './committee-generation-model'
-import type { CommitteeSpeaker } from '@/actions/committee-speakers'
+import {
+  Building2,
+  CalendarDays,
+  LayoutPanelTop,
+  Sparkles,
+  Waves,
+} from 'lucide-react'
+import { toast } from 'sonner'
+
+import {
+  DashboardPill,
+  DashboardSurface,
+} from '@/components/dashboard-primitives'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { AgendaSyncPayload } from '@/lib/agenda-columns'
+import type { CommitteeSpeaker } from '@/lib/committee-speakers'
+import type { MomDraftBatchWithRows } from '@/lib/meeting-generation/types'
 import type { Agenda } from '@/lib/supabase/types'
-import type { MinuteEntry } from './minute-entry'
+import { AgendaEditor, type AgendaEditorHandle } from './agenda-editor'
+import type { AgendaLinkedDataState } from './agenda-linked-data'
 import type { AgendaTimelineRow } from './agenda-timeline-row'
+import { DashboardTab } from './dashboard-tab'
+import { DraftMomProgressDialog } from './draft-mom-progress-dialog'
+import { ItinerariesTab } from './itineraries-tab'
 import type { MeetingPackConfig } from './meeting-pack-model'
-import type { CommitteeRagDocumentSummary } from './rag-actions'
+import { MomGenerator } from './mom-generator'
+import type { MinuteEntry } from './minute-entry'
+import { RagTab } from './rag-tab'
+import type { CommitteeRagDocumentSummary } from './rag-types'
+import { MatchSpeakerSection } from './match-speaker-section'
+import { RulesSection } from './rules-section'
+import { SettingsTemplateTab } from './settings-template-tab'
+import type { TemplateGroup } from './settings-template-model'
+import { SetupBuildGuard } from './setup-build-guard'
+import type { AiModelOption } from '@/lib/ai/catalog'
 import {
   buildAgendaStepAnalytics,
   buildMeetingPackStepAnalytics,
   deriveWorkspaceStatus,
   deriveWorkflowAutoStatuses,
+  getWorkflowActiveStepStorageKey,
   getWorkflowStatusStorageKey,
+  isSetupWorkflowStepId,
   type SetupTabValue,
   type SetupWorkflowStepId,
   type StepStatus,
   type StepStatusOverrides,
 } from './setup-workflow'
-
-interface ItineraryTemplate {
-  section_key: string
-  storage_path: string
-  file_name: string
-}
+import { useMomGenerationQueue } from './use-mom-generation-queue'
 
 interface Props {
   meetingId: string
@@ -46,91 +59,210 @@ interface Props {
   meetingDate: string
   committeeName: string | null
   committeeId: string | null
+  committeeSlug: string | null
   organizationName: string
   existingAgendas: Agenda[]
   agendaFormatPrompts: Record<string, string>
   hasExistingTranscript: boolean
   initialMeetingRules: string
-  committeeGenerationSettings: CommitteeGenerationSettingsResult | null
-  itineraryTemplates: ItineraryTemplate[]
+  initialTemplateGroups: TemplateGroup[]
   committeeSpeakers: CommitteeSpeaker[]
   currentMinutesByAgenda: Record<string, MinuteEntry>
+  linkedDataByAgendaId: Record<string, AgendaLinkedDataState>
+  initialMomDraftBatch: MomDraftBatchWithRows | null
   initialTimelineRows: AgendaTimelineRow[]
   meetingStatus: string
+  agendaColumnConfig: Record<string, unknown>[]
+  agendaLockedAt: string | null
   initialMeetingPackConfig: MeetingPackConfig
   initialRagDocuments: CommitteeRagDocumentSummary[]
+  askModelOptions: AiModelOption[]
+  defaultAskModelId: string
+  initialBuildId: string | null
+  initialTab: SetupTabValue
+}
+
+const ACTIVE_STEP_LABELS: Record<SetupWorkflowStepId, string> = {
+  agenda: 'Agenda Preparation',
+  'meeting-pack': 'Meeting Pack',
+  recording: 'Recording And MoM',
 }
 
 export function MeetingDashboard({
-  meetingId, meetingTitle, meetingDate, committeeName,
-  committeeId, organizationName, existingAgendas, agendaFormatPrompts, hasExistingTranscript,
+  meetingId,
+  meetingTitle,
+  meetingDate,
+  committeeName,
+  committeeId,
+  committeeSlug,
+  organizationName,
+  existingAgendas,
+  agendaFormatPrompts,
+  hasExistingTranscript,
   initialMeetingRules,
-  committeeGenerationSettings, itineraryTemplates, committeeSpeakers,
+  initialTemplateGroups,
+  committeeSpeakers,
   currentMinutesByAgenda,
+  linkedDataByAgendaId,
+  initialMomDraftBatch,
   initialTimelineRows,
   meetingStatus,
+  agendaColumnConfig,
+  agendaLockedAt,
   initialMeetingPackConfig,
   initialRagDocuments,
+  askModelOptions,
+  defaultAskModelId,
+  initialBuildId,
+  initialTab,
 }: Props) {
-  const [templateGroups, setTemplateGroups] = useState<TemplateGroup[]>(() => {
-    const groups = createInitialTemplateGroups({
-      minuteInstruction: committeeGenerationSettings?.minuteInstruction ?? null,
-      minuteTemplateFileName: committeeGenerationSettings?.defaultFormatSourceName ?? null,
-    })
-    // Hydrate stored itinerary templates
-    if (itineraryTemplates.length > 0) {
-      const itineraryGroup = groups.find(g => g.id === 'itineraries')
-      if (itineraryGroup) {
-        for (const tmpl of itineraryTemplates) {
-          const section = itineraryGroup.sections.find(
-            s => s.title.trim().toLowerCase().replace(/\s+/g, '-') === tmpl.section_key,
-          )
-          if (section) {
-            section.templateFileName = tmpl.file_name
-            section.templateStoragePath = tmpl.storage_path
-          }
-        }
-      }
-    }
-    return groups
-  })
-  const generationQueue = useMomGenerationQueue()
-  const [timelineRows, setTimelineRows] = useState<AgendaTimelineRow[]>(initialTimelineRows)
-  const [activeTab, setActiveTab] = useState<SetupTabValue>('dashboard')
-  const [activeStep, setActiveStep] = useState<SetupWorkflowStepId>('agenda')
-  const [stepStatusOverrides, setStepStatusOverrides] = useState<StepStatusOverrides>({})
-  const [loadedStatusMeetingId, setLoadedStatusMeetingId] = useState<string | null>(null)
+  const router = useRouter()
+  const [templateGroups, setTemplateGroups] = useState<TemplateGroup[]>(
+    () => initialTemplateGroups
+  )
+  const [speakerRoster, setSpeakerRoster] =
+    useState<CommitteeSpeaker[]>(committeeSpeakers)
+  const [skippedAgendaIds, setSkippedAgendaIds] = useState<string[]>(
+    () => existingAgendas.filter(agenda => agenda.is_skipped).map(agenda => agenda.id)
+  )
+  const [agendaStatuses, setAgendaStatuses] = useState<Map<string, 'done' | 'ongoing' | 'pending'>>(
+    () => new Map(existingAgendas.map(agenda => [agenda.id, agenda.minute_status ?? 'pending'])),
+  )
+  const generationQueue = useMomGenerationQueue(existingAgendas, initialMomDraftBatch)
+  const [isDraftProgressOpen, setIsDraftProgressOpen] = useState(false)
+  const [timelineRows, setTimelineRows] =
+    useState<AgendaTimelineRow[]>(initialTimelineRows)
+  const [activeTab, setActiveTab] = useState<SetupTabValue>(initialTab)
+  const [activeStep, setActiveStep] =
+    useState<SetupWorkflowStepId>('agenda')
+  const [loadedStepMeetingId, setLoadedStepMeetingId] = useState<string | null>(
+    null
+  )
+  const [stepStatusOverrides, setStepStatusOverrides] =
+    useState<StepStatusOverrides>({})
+  const [loadedStatusMeetingId, setLoadedStatusMeetingId] = useState<
+    string | null
+  >(null)
+  const [isAgendaLockPending, startAgendaLockTransition] = useTransition()
+  const agendaEditorRef = useRef<AgendaEditorHandle>(null)
+  const isAgendaLocked = Boolean(agendaLockedAt)
+  const committeeSettingsHref = committeeSlug
+    ? `/secretariat/${committeeSlug}?tab=settings`
+    : null
 
   const formattedDate = new Date(meetingDate).toLocaleDateString('en-MY', {
-    day: 'numeric', month: 'long', year: 'numeric',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
   })
+
+  useEffect(() => {
+    setTemplateGroups(initialTemplateGroups)
+  }, [initialTemplateGroups, meetingId])
+
+  useEffect(() => {
+    setSpeakerRoster(committeeSpeakers)
+  }, [committeeSpeakers, meetingId])
+
+  useEffect(() => {
+    setAgendaStatuses(new Map(existingAgendas.map(
+      agenda => [agenda.id, agenda.minute_status ?? 'pending'],
+    )))
+  }, [existingAgendas, meetingId])
+
+  const existingAgendasWithLiveStatuses = useMemo(
+    () => existingAgendas.map(agenda => ({
+      ...agenda,
+      minute_status: agendaStatuses.get(agenda.id) ?? agenda.minute_status ?? 'pending',
+    })),
+    [agendaStatuses, existingAgendas],
+  )
 
   const agendaAnalytics = useMemo(
     () => buildAgendaStepAnalytics(existingAgendas),
-    [existingAgendas],
+    [existingAgendas]
   )
   const meetingPackAnalytics = useMemo(
     () => buildMeetingPackStepAnalytics(existingAgendas),
-    [existingAgendas],
+    [existingAgendas]
   )
   const autoStepStatuses = useMemo(
-    () => deriveWorkflowAutoStatuses({ agendas: existingAgendas, hasExistingTranscript }),
-    [existingAgendas, hasExistingTranscript],
+    () =>
+      deriveWorkflowAutoStatuses({
+        agendas: existingAgendas,
+        agendaLocked: isAgendaLocked,
+        hasExistingTranscript,
+      }),
+    [existingAgendas, hasExistingTranscript, isAgendaLocked]
   )
-  const resolvedStepStatuses = useMemo<Record<SetupWorkflowStepId, StepStatus>>(() => ({
-    agenda: stepStatusOverrides.agenda ?? autoStepStatuses.agenda,
-    'meeting-pack': stepStatusOverrides['meeting-pack'] ?? autoStepStatuses['meeting-pack'],
-    recording: stepStatusOverrides.recording ?? autoStepStatuses.recording,
-  }), [autoStepStatuses, stepStatusOverrides])
+  const resolvedStepStatuses = useMemo<
+    Record<SetupWorkflowStepId, StepStatus>
+  >(
+    () => ({
+      agenda: autoStepStatuses.agenda,
+      'meeting-pack':
+        stepStatusOverrides['meeting-pack'] ??
+        autoStepStatuses['meeting-pack'],
+      recording: stepStatusOverrides.recording ?? autoStepStatuses.recording,
+    }),
+    [autoStepStatuses, stepStatusOverrides]
+  )
   const workspaceStatus = useMemo(
-    () => deriveWorkspaceStatus({ stepStatuses: resolvedStepStatuses, meetingStatus }),
-    [meetingStatus, resolvedStepStatuses],
+    () =>
+      deriveWorkspaceStatus({
+        stepStatuses: resolvedStepStatuses,
+        meetingStatus,
+      }),
+    [meetingStatus, resolvedStepStatuses]
   )
 
   useEffect(() => {
-    setActiveTab('dashboard')
-    setActiveStep('agenda')
+    setActiveTab(initialTab)
+  }, [initialTab, meetingId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const url = new URL(window.location.href)
+    if (activeTab === 'dashboard') {
+      url.searchParams.delete('tab')
+    } else {
+      url.searchParams.set('tab', activeTab)
+    }
+
+    const nextHref = `${url.pathname}${url.search}${url.hash}`
+    const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (nextHref !== currentHref) {
+      window.history.replaceState(window.history.state, '', nextHref)
+    }
+  }, [activeTab, meetingId])
+
+  useEffect(() => {
+    setSkippedAgendaIds(
+      existingAgendas.filter(agenda => agenda.is_skipped).map(agenda => agenda.id)
+    )
+  }, [existingAgendas, meetingId])
+
+  useEffect(() => {
+    const storageKey = getWorkflowActiveStepStorageKey(meetingId)
+    try {
+      const storedStep = window.localStorage.getItem(storageKey)
+      if (storedStep && isSetupWorkflowStepId(storedStep)) {
+        setActiveStep(storedStep)
+        return
+      }
+
+      setActiveStep('agenda')
+    } finally {
+      setLoadedStepMeetingId(meetingId)
+    }
   }, [meetingId])
+
+  useEffect(() => {
+    if (loadedStepMeetingId !== meetingId) return
+    const storageKey = getWorkflowActiveStepStorageKey(meetingId)
+    window.localStorage.setItem(storageKey, activeStep)
+  }, [activeStep, loadedStepMeetingId, meetingId])
 
   useEffect(() => {
     const storageKey = getWorkflowStatusStorageKey(meetingId)
@@ -156,7 +288,20 @@ export function MeetingDashboard({
     window.localStorage.setItem(storageKey, JSON.stringify(stepStatusOverrides))
   }, [loadedStatusMeetingId, meetingId, stepStatusOverrides])
 
+  useEffect(() => {
+    if (generationQueue.state.isGenerating || generationQueue.state.activeBatch?.id) {
+      setIsDraftProgressOpen(true)
+    }
+  }, [generationQueue.state.activeBatch?.id, generationQueue.state.isGenerating])
+
+  useEffect(() => {
+    if (!generationQueue.state.isGenerating && !generationQueue.state.activeBatch) {
+      setIsDraftProgressOpen(false)
+    }
+  }, [generationQueue.state.activeBatch, generationQueue.state.isGenerating])
+
   function handleStepStatusChange(stepId: SetupWorkflowStepId, nextStatus: StepStatus) {
+    if (stepId === 'agenda') return
     setStepStatusOverrides(prev => {
       const next = { ...prev }
       if (nextStatus === autoStepStatuses[stepId]) delete next[stepId]
@@ -165,84 +310,275 @@ export function MeetingDashboard({
     })
   }
 
+  async function handleStartGeneration(
+    options: Parameters<typeof generationQueue.startGeneration>[0]
+  ) {
+    const started = await generationQueue.startGeneration(options)
+    if (started) {
+      setIsDraftProgressOpen(true)
+    }
+    return started
+  }
+
+  async function handleImportDraftBatch() {
+    const imported = await generationQueue.importDraftBatch()
+    if (imported) {
+      setIsDraftProgressOpen(false)
+    }
+    return imported
+  }
+
+  function handleAgendaLock(
+    action: 'lock' | 'unlock',
+    draft?: AgendaSyncPayload
+  ) {
+    startAgendaLockTransition(async () => {
+      try {
+        if (action === 'lock' && draft) {
+          const syncResponse = await fetch(
+            `/api/meeting/${meetingId}/agenda-sync`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(draft),
+            }
+          )
+          const syncResult = await syncResponse
+            .json()
+            .catch(() => ({
+              ok: false,
+              message: 'Failed to save agenda before locking',
+            }))
+
+          if (!syncResponse.ok || !syncResult.ok) {
+            throw new Error(
+              syncResult.message || 'Failed to save agenda before locking'
+            )
+          }
+        }
+
+        const response = await fetch(`/api/meeting/${meetingId}/agenda-lock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        })
+        const result = await response
+          .json()
+          .catch(() => ({ ok: false, message: 'Failed to update agenda lock state' }))
+
+        if (!response.ok || !result.ok) {
+          throw new Error(result.message || 'Failed to update agenda lock state')
+        }
+
+        if (action === 'lock') {
+          setActiveStep('meeting-pack')
+          toast.success('Step 1 marked done for this meeting.')
+        } else {
+          setActiveStep('agenda')
+          toast.success('Step 1 reversed to pending.')
+        }
+        router.refresh()
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Failed to update agenda lock state'
+        )
+      }
+    })
+  }
+
+  const completedStepCount = Object.values(resolvedStepStatuses).filter(
+    status => status === 'done'
+  ).length
+  const workspaceToneClass =
+    workspaceStatus.tone === 'done'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : 'border-amber-200 bg-amber-50 text-amber-700'
+  const hasDraftFlow =
+    generationQueue.state.isGenerating || Boolean(generationQueue.state.activeBatch)
+  const currentTabLabel =
+    activeTab === 'dashboard'
+      ? 'Operational cockpit'
+      : activeTab === 'agenda'
+        ? 'Agenda editor'
+        : activeTab === 'generate'
+          ? 'Generate MoM'
+          : activeTab === 'itineraries'
+            ? 'Meeting pack'
+            : 'Settings'
+
   return (
-    <div className="space-y-6">
-      <motion.section
+    <div className="space-y-4">
+      <SetupBuildGuard initialBuildId={initialBuildId} />
+      <DraftMomProgressDialog
+        open={isDraftProgressOpen}
+        onOpenChange={setIsDraftProgressOpen}
+        existingAgendas={existingAgendas}
+        skippedAgendaIds={skippedAgendaIds}
+        generationState={generationQueue.state}
+        onStartGeneration={handleStartGeneration}
+        onCancelGeneration={generationQueue.cancelGeneration}
+        onImportDraftBatch={handleImportDraftBatch}
+      />
+
+      <motion.div
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28 }}
-        className="rounded-[28px] border border-zinc-200 bg-white px-5 py-5 shadow-sm sm:px-6"
       >
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-3">
-            <Badge className="border-zinc-200 bg-zinc-100 px-3 py-1 text-[0.68rem] uppercase tracking-[0.28em] text-zinc-600">
-              Meeting workspace
-            </Badge>
-            <div>
-              <h1 className="font-display text-2xl font-semibold tracking-[-0.05em] text-zinc-950 sm:text-[2rem]">
-                {meetingTitle}
-              </h1>
-              <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-zinc-500">
-                <span className="flex items-center gap-1.5">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  {formattedDate}
-                </span>
-                {committeeName ? (
-                  <span className="flex items-center gap-1.5">
-                    <Building2 className="h-3.5 w-3.5" />
-                    {committeeName}
+        <DashboardSurface tone="accent" padding="sm">
+          <div className="grid gap-3.5 xl:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <DashboardPill tone="primary" className="px-2 py-0.5 text-[10px]">Meeting workspace</DashboardPill>
+                <DashboardPill className="px-2 py-0.5 text-[10px]">{currentTabLabel}</DashboardPill>
+                <DashboardPill className="px-2 py-0.5 text-[10px]">{ACTIVE_STEP_LABELS[activeStep]}</DashboardPill>
+              </div>
+
+              <div>
+                <h1 className="font-display text-[1.45rem] font-semibold tracking-[-0.05em] text-foreground sm:text-[1.72rem]">
+                  {meetingTitle}
+                </h1>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5 rounded-[14px] border border-white/70 bg-white/84 px-2.5 py-1 shadow-sm">
+                    <CalendarDays className="h-3.5 w-3.5 text-primary" />
+                    {formattedDate}
                   </span>
-                ) : null}
+                  {committeeName ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-[14px] border border-white/70 bg-white/84 px-2.5 py-1 shadow-sm">
+                      <Building2 className="h-3.5 w-3.5 text-primary" />
+                      {committeeName}
+                    </span>
+                  ) : null}
+                  <span className="inline-flex items-center gap-1.5 rounded-[14px] border border-white/70 bg-white/84 px-2.5 py-1 shadow-sm">
+                    <LayoutPanelTop className="h-3.5 w-3.5 text-primary" />
+                    {organizationName}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <DashboardPill tone={hasExistingTranscript ? 'success' : 'warning'} className="px-2 py-0.5 text-[10px]">
+                  <Waves className="h-3.5 w-3.5" />
+                  Transcript {hasExistingTranscript ? 'ready' : 'missing'}
+                </DashboardPill>
+                <DashboardPill tone={hasDraftFlow ? 'primary' : 'default'} className="px-2 py-0.5 text-[10px]">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {hasDraftFlow ? 'Draft batch active' : 'No draft batch active'}
+                </DashboardPill>
+                <DashboardPill className="px-2 py-0.5 text-[10px]">{existingAgendas.length} agenda row{existingAgendas.length === 1 ? '' : 's'}</DashboardPill>
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
+              <div className="rounded-[16px] border border-white/70 bg-white/88 px-3 py-2.5 shadow-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Workspace Status
+                </p>
+                <div className="mt-1.5">
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${workspaceToneClass}`}
+                  >
+                    {workspaceStatus.label}
+                  </span>
+                </div>
+              </div>
+              <div className="rounded-[16px] border border-white/70 bg-white/88 px-3 py-2.5 shadow-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Workflow Progress
+                </p>
+                <p className="mt-1 text-[1.05rem] font-semibold tracking-[-0.04em] text-foreground">
+                  {completedStepCount}/3 done
+                </p>
+                <p className="mt-1 text-[11px] leading-[1.05rem] text-muted-foreground">
+                  Current focus: {ACTIVE_STEP_LABELS[activeStep]}
+                </p>
+              </div>
+              <div className="rounded-[16px] border border-white/70 bg-white/88 px-3 py-2.5 shadow-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Generation Queue
+                </p>
+                <p className="mt-1 text-[1.05rem] font-semibold tracking-[-0.04em] text-foreground">
+                  {hasDraftFlow ? 'Running' : 'Idle'}
+                </p>
+                <p className="mt-1 text-[11px] leading-[1.05rem] text-muted-foreground">
+                  {generationQueue.state.activeBatch
+                    ? 'Resume, monitor, or import from Draft Progress.'
+                    : 'Open Generate MoM when the transcript and timeline are ready.'}
+                </p>
               </div>
             </div>
           </div>
+        </DashboardSurface>
+      </motion.div>
 
-          <div className="rounded-[22px] border border-zinc-200 bg-zinc-50 px-4 py-3">
-            <div className="flex items-center gap-2 text-sm text-zinc-500">
-              <LayoutPanelTop className="h-4 w-4" />
-              <span>Workspace status</span>
+      <Tabs
+        value={activeTab}
+        onValueChange={value => setActiveTab(value as SetupTabValue)}
+        className="gap-5"
+      >
+        <DashboardSurface tone="muted" padding="sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
+                Workspace lanes
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Switch between cockpit, agenda editing, generation, itineraries, and meeting-level settings.
+              </p>
             </div>
-            <div className="mt-2">
-              <Badge className={workspaceStatus.tone === 'done'
-                ? 'bg-emerald-50 text-emerald-700 shadow-sm'
-                : 'bg-white text-zinc-700 shadow-sm'}
-              >
-                {workspaceStatus.label}
-              </Badge>
+
+            <div className="w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden lg:w-auto">
+              <TabsList className="inline-flex w-max gap-1 rounded-full bg-white/95 p-1 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.24)]">
+                <TabsTrigger value="dashboard" className="h-8 flex-none px-3 text-xs sm:text-sm">
+                  Dashboard
+                </TabsTrigger>
+                <TabsTrigger value="agenda" className="h-8 flex-none px-3 text-xs sm:text-sm">
+                  Agenda
+                </TabsTrigger>
+                <TabsTrigger value="generate" className="h-8 flex-none px-3 text-xs sm:text-sm">
+                  Generate MoM
+                </TabsTrigger>
+                <TabsTrigger value="itineraries" className="h-8 flex-none px-3 text-xs sm:text-sm">
+                  Itineraries
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="h-8 flex-none px-3 text-xs sm:text-sm">
+                  Settings
+                </TabsTrigger>
+              </TabsList>
             </div>
           </div>
-        </div>
-      </motion.section>
+        </DashboardSurface>
 
-      <Tabs value={activeTab} onValueChange={value => setActiveTab(value as SetupTabValue)}>
-        <div className="w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-          <TabsList className="inline-flex w-max gap-1 rounded-full bg-white/92 p-1.5 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.4)]">
-            <TabsTrigger value="dashboard" className="h-8 flex-none px-3 text-xs sm:text-sm">Dashboard</TabsTrigger>
-            <TabsTrigger value="agenda" className="h-8 flex-none px-3 text-xs sm:text-sm">Agenda</TabsTrigger>
-            <TabsTrigger value="generate" className="h-8 flex-none px-3 text-xs sm:text-sm">Generate MoM</TabsTrigger>
-            <TabsTrigger value="itineraries" className="h-8 flex-none px-3 text-xs sm:text-sm">Itineraries</TabsTrigger>
-            <TabsTrigger value="settings" className="h-8 flex-none px-3 text-xs sm:text-sm">Settings</TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="dashboard" forceMount className="mt-6 data-[state=inactive]:hidden">
+        <TabsContent
+          value="dashboard"
+          forceMount
+          className="mt-0 data-[state=inactive]:hidden"
+        >
           <DashboardTab
             meetingId={meetingId}
             meetingTitle={meetingTitle}
             meetingDate={meetingDate}
             committeeName={committeeName}
             existingAgendas={existingAgendas}
-            committeeSpeakers={committeeSpeakers}
+            committeeSpeakers={speakerRoster}
             hasExistingTranscript={hasExistingTranscript}
             initialMeetingRules={initialMeetingRules}
             currentMinutesByAgenda={currentMinutesByAgenda}
+            linkedDataByAgendaId={linkedDataByAgendaId}
             timelineRows={timelineRows}
             onTimelineRowsChange={setTimelineRows}
             generationState={generationQueue.state}
-            onStartGeneration={generationQueue.startGeneration}
-            onCancelGeneration={generationQueue.cancelGeneration}
+            onStartGeneration={handleStartGeneration}
             activeStep={activeStep}
             onStepChange={setActiveStep}
+            skippedAgendaIds={skippedAgendaIds}
+            hasDraftProgress={
+              Boolean(generationQueue.state.activeBatch) ||
+              generationQueue.state.isGenerating
+            }
+            onOpenDraftProgress={() => setIsDraftProgressOpen(true)}
             onOpenAgendaTab={() => setActiveTab('agenda')}
             onOpenMeetingPackTab={() => setActiveTab('itineraries')}
             agendaAnalytics={agendaAnalytics}
@@ -250,11 +586,21 @@ export function MeetingDashboard({
             autoStepStatuses={autoStepStatuses}
             stepStatuses={resolvedStepStatuses}
             onStepStatusChange={handleStepStatusChange}
+            isAgendaLockPending={isAgendaLockPending}
+            onLockAgenda={() => handleAgendaLock('lock', agendaEditorRef.current?.getDraft())}
+            onUnlockAgenda={() => handleAgendaLock('unlock')}
+            askModelOptions={askModelOptions}
+            defaultAskModelId={defaultAskModelId}
           />
         </TabsContent>
 
-        <TabsContent value="agenda" forceMount className="mt-6 data-[state=inactive]:hidden">
+        <TabsContent
+          value="agenda"
+          forceMount
+          className="mt-0 data-[state=inactive]:hidden"
+        >
           <AgendaEditor
+            ref={agendaEditorRef}
             meetingId={meetingId}
             meetingTitle={meetingTitle}
             meetingDate={meetingDate}
@@ -262,54 +608,97 @@ export function MeetingDashboard({
             committeeId={committeeId}
             organizationName={organizationName}
             existingAgendas={existingAgendas}
+            linkedDataByAgendaId={linkedDataByAgendaId}
+            agendaColumnConfig={agendaColumnConfig}
+            agendaLockedAt={agendaLockedAt}
+            isLockActionPending={isAgendaLockPending}
+            onUnlockAgenda={() => handleAgendaLock('unlock')}
           />
         </TabsContent>
 
-        <TabsContent value="generate" forceMount className="mt-6 data-[state=inactive]:hidden">
+        <TabsContent
+          value="generate"
+          forceMount
+          className="mt-0 data-[state=inactive]:hidden"
+        >
           <MomGenerator
             meetingId={meetingId}
             committeeId={committeeId}
-            existingAgendas={existingAgendas}
+            existingAgendas={existingAgendasWithLiveStatuses}
             agendaFormatPrompts={agendaFormatPrompts}
             hasExistingTranscript={hasExistingTranscript}
+            hasSavedTimeline={timelineRows.length > 0}
             initialMeetingRules={initialMeetingRules}
             currentMinutesByAgenda={currentMinutesByAgenda}
+            timelineRows={timelineRows}
             onTimelineRowsChange={setTimelineRows}
+            agendaStatuses={agendaStatuses}
+            onAgendaStatusesChange={setAgendaStatuses}
             generationState={generationQueue.state}
-            onStartGeneration={generationQueue.startGeneration}
-            onCancelGeneration={generationQueue.cancelGeneration}
-            onResetGenerationState={generationQueue.resetGenerationState}
-            onClearLiveMinutes={generationQueue.clearLiveMinutes}
+            onStartGeneration={handleStartGeneration}
+            skippedAgendaIds={skippedAgendaIds}
+            onSkippedAgendaIdsChange={setSkippedAgendaIds}
+            hasDraftProgress={
+              Boolean(generationQueue.state.activeBatch) ||
+              generationQueue.state.isGenerating
+            }
+            onOpenDraftProgress={() => setIsDraftProgressOpen(true)}
           />
         </TabsContent>
 
-        <TabsContent value="itineraries" forceMount className="mt-6 data-[state=inactive]:hidden">
+        <TabsContent
+          value="itineraries"
+          forceMount
+          className="mt-0 data-[state=inactive]:hidden"
+        >
           <ItinerariesTab
             groups={templateGroups}
             meetingId={meetingId}
             meetingTitle={meetingTitle}
             meetingDate={meetingDate}
-            existingAgendas={existingAgendas}
-            committeeId={committeeId}
-            meetingStatus={meetingStatus}
+            existingAgendas={existingAgendasWithLiveStatuses}
             initialMeetingPackConfig={initialMeetingPackConfig}
           />
         </TabsContent>
 
-        <TabsContent value="settings" forceMount className="mt-6 data-[state=inactive]:hidden">
+        <TabsContent
+          value="settings"
+          forceMount
+          className="mt-0 data-[state=inactive]:hidden"
+        >
           <div className="space-y-6">
             <RulesSection
+              mode="meeting"
               committeeId={committeeId}
-              initialInstruction={committeeGenerationSettings?.minuteInstruction ?? ''}
+              meetingId={meetingId}
+              initialInstruction={initialMeetingRules}
+              committeeSettingsHref={committeeSettingsHref}
             />
             <SettingsTemplateTab
+              scope="meeting"
               meetingId={meetingId}
               committeeId={committeeId}
               groups={templateGroups}
+              linkedDataByAgendaId={linkedDataByAgendaId}
               onGroupsChange={setTemplateGroups}
+              onImportCompleted={() => setActiveTab('agenda')}
+              committeeSettingsHref={committeeSettingsHref}
             />
-            <MatchSpeakerSection committeeId={committeeId} initialSpeakers={committeeSpeakers} />
-            <RagTab committeeId={committeeId} initialDocuments={initialRagDocuments} />
+            <MatchSpeakerSection
+              key={`${meetingId}:${committeeId ?? 'none'}`}
+              scope="meeting"
+              committeeId={committeeId}
+              meetingId={meetingId}
+              initialSpeakers={speakerRoster}
+              committeeSettingsHref={committeeSettingsHref}
+              onSpeakersChange={setSpeakerRoster}
+            />
+            <RagTab
+              committeeId={committeeId}
+              initialDocuments={initialRagDocuments}
+              readOnly
+              settingsHref={committeeSettingsHref}
+            />
           </div>
         </TabsContent>
       </Tabs>

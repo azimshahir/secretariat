@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { ArrowRight, FileSpreadsheet, FileAudio, FileText } from 'lucide-react'
+import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { Dropzone } from '@/components/dropzone'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -21,7 +21,7 @@ interface SetupFormProps {
 }
 
 export function SetupForm({ meetingId, existingAgendas, hasExistingTranscript }: SetupFormProps) {
-  const router = useRouter()
+  const { push } = useNavigationTransition()
   const [agendas, setAgendas] = useState<Agenda[]>(existingAgendas)
   const [hasTranscript, setHasTranscript] = useState(hasExistingTranscript)
   const [proceeding, setProceeding] = useState(false)
@@ -33,7 +33,7 @@ export function SetupForm({ meetingId, existingAgendas, hasExistingTranscript }:
     try {
       await updateMeetingStatus(meetingId, 'mapping')
       toast.success('Meeting setup complete. Proceeding to mapping.')
-      router.push(`/meeting/${meetingId}/map`)
+      push(`/meeting/${meetingId}/map`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to proceed')
       setProceeding(false)
@@ -59,6 +59,13 @@ export function SetupForm({ meetingId, existingAgendas, hasExistingTranscript }:
             label="Drop Excel file here"
             hint=".xlsx, .xls, or .csv"
             onFile={async (file) => {
+              if (
+                agendas.length > 0
+                && !window.confirm('This Excel import will replace the current agenda rows and may delete linked generated minutes, draft MoM, and action items. Continue?')
+              ) {
+                return
+              }
+
               const count = await parseAgendaExcel(meetingId, file)
               // Refresh agendas from the action result
               const fakeAgendas = Array.from({ length: count }, (_, i) => ({
@@ -67,8 +74,13 @@ export function SetupForm({ meetingId, existingAgendas, hasExistingTranscript }:
                 agenda_no: String(i + 1),
                 title: `Agenda ${i + 1}`,
                 presenter: null,
+                planned_time: null,
+                content_revision: 1,
+                custom_cells: {},
                 slide_pages: null,
                 format_template_id: null,
+                minute_playbook_id: null,
+                minute_playbook_variant_override_id: null,
                 additional_info: null,
                 minute_status: 'pending' as const,
                 is_skipped: false,
@@ -76,7 +88,6 @@ export function SetupForm({ meetingId, existingAgendas, hasExistingTranscript }:
                 created_at: new Date().toISOString(),
               }))
               setAgendas(fakeAgendas)
-              router.refresh()
               toast.success(`Agenda imported (${count} items)`)
             }}
           />
@@ -100,7 +111,7 @@ export function SetupForm({ meetingId, existingAgendas, hasExistingTranscript }:
             <CardTitle className="text-base">Step 2: Meeting Transcript</CardTitle>
           </div>
           <CardDescription>
-            Upload transcript (.docx / .vtt / .txt) or raw audio/video for Whisper STT
+            Upload transcript (.docx / .vtt / .txt) or raw audio/video for OpenAI transcript intelligence
           </CardDescription>
         </CardHeader>
         <CardContent>

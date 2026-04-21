@@ -7,6 +7,11 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { InteractiveDemo } from "@/components/ui/interactive-demo";
+import {
+    SUBSCRIPTION_PLANS,
+    SUBSCRIPTION_PLAN_ORDER,
+    SUBSCRIPTION_TOP_UP_PACKS,
+} from "@/lib/subscription/catalog";
 
 /** Shared Components */
 export const Stat = ({ label, value }: { label: string; value: string }) => (
@@ -288,6 +293,13 @@ export function HowItWorksSection({ bgClass = "bg-[#F3F5F7]" }: { bgClass?: stri
 }
 
 export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
+    const tierDescriptions: Record<string, string> = {
+        free: "For trying the workflow",
+        basic: "For solo users with light audio review",
+        pro: "For small teams running real meetings",
+        premium: "For departments with heavier workloads",
+    };
+
     return (
         <div className={`py-24 px-4 sm:px-6 lg:px-8 border-t border-slate-200/60 relative overflow-hidden ${bgClass}`}>
             <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-emerald-50/50 rounded-full blur-[100px] pointer-events-none transform translate-x-1/3 -translate-y-1/3 text-emerald-50"></div>
@@ -295,57 +307,82 @@ export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
             <div className="mx-auto max-w-[1180px] relative z-10">
                 <div className="text-center mb-16">
                     <h2 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 mb-4">Simple, Transparent Pricing</h2>
-                    <p className="text-slate-600 max-w-2xl mx-auto text-lg">Choose the plan that fits your needs. No hidden fees.</p>
+                    <p className="text-slate-600 max-w-2xl mx-auto text-lg">Choose the plan that fits your workflow, then top up credits or transcription hours only when you need more.</p>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-                    {/* Free Plan */}
-                    <div className="rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200 flex flex-col">
-                        <h3 className="text-xl font-semibold text-slate-900 mb-2">Free</h3>
-                        <p className="text-slate-500 text-sm mb-6">Perfect to try out</p>
-                        <div className="text-4xl font-semibold tracking-tight text-slate-900 mb-6">RM 0<span className="text-lg text-slate-500 font-normal">/mo</span></div>
-                        <ul className="space-y-4 mb-8 flex-1 text-sm text-slate-700">
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-600" /> 3 Meetings per month</li>
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-600" /> Max 30 mins audio</li>
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-600" /> Standard support</li>
-                        </ul>
-                        <Link href="/login" className="w-full">
-                            <button className="w-full rounded-full bg-slate-100 text-slate-900 font-medium py-3 hover:bg-slate-200 transition-colors">Current Plan</button>
-                        </Link>
+                <div className="grid gap-8 lg:grid-cols-4">
+                    {SUBSCRIPTION_PLAN_ORDER.map((tier) => {
+                        const plan = SUBSCRIPTION_PLANS[tier];
+                        const isFeatured = tier === "pro";
+
+                        return (
+                            <div
+                                key={tier}
+                                className={`relative flex flex-col rounded-2xl p-8 ${isFeatured
+                                    ? "bg-gradient-to-b from-emerald-900 to-emerald-800 shadow-xl"
+                                    : "bg-white shadow-sm ring-1 ring-slate-200"
+                                    }`}
+                            >
+                                {isFeatured ? (
+                                    <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white px-4 py-1.5 text-xs font-bold tracking-wide text-emerald-800 shadow-sm">
+                                        BEST VALUE
+                                    </div>
+                                ) : null}
+                                <h3 className={`text-xl font-semibold ${isFeatured ? "text-emerald-50" : "text-slate-900"}`}>{plan.label}</h3>
+                                <p className={`mt-2 text-sm ${isFeatured ? "text-emerald-100/80" : "text-slate-500"}`}>
+                                    {tierDescriptions[tier]}
+                                </p>
+                                <div className={`mb-6 mt-6 text-4xl font-semibold tracking-tight ${isFeatured ? "text-white" : "text-slate-900"}`}>
+                                    RM {plan.priceRmMonthly}
+                                    <span className={`text-lg font-normal ${isFeatured ? "text-emerald-100/80" : "text-slate-500"}`}>/mo</span>
+                                </div>
+
+                                <ul className={`mb-8 flex-1 space-y-4 text-sm ${isFeatured ? "text-emerald-50" : "text-slate-700"}`}>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.operatorsLabel}</li>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.committeeAllowanceLabel}</li>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.transcriptReviewJobs} transcript reviews / month</li>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.transcriptionHours > 0 ? `${plan.transcriptionHours} transcription hrs / month` : "No audio/video upload"}</li>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.includedCredits} included credits / month</li>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.supportLabel}</li>
+                                </ul>
+
+                                <Link href="/login" className="w-full">
+                                    <button className={`w-full rounded-full py-3 font-medium transition-colors ${isFeatured
+                                        ? "bg-white text-emerald-900 hover:bg-slate-50"
+                                        : "bg-slate-100 text-slate-900 hover:bg-slate-200"
+                                        }`}>
+                                        {tier === "free" ? "Start free" : `Choose ${plan.label}`}
+                                    </button>
+                                </Link>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="mx-auto mt-14 max-w-5xl rounded-3xl border border-slate-200 bg-white/90 p-8 shadow-sm">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                        <div>
+                            <h3 className="text-2xl font-semibold tracking-tight text-slate-900">Top-up packs</h3>
+                            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                                Need extra usage this month? Add credits or transcription hours manually without changing your plan.
+                            </p>
+                        </div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Manual top-up for this phase</p>
                     </div>
 
-                    {/* Pro Plan */}
-                    <div className="rounded-2xl bg-gradient-to-b from-emerald-900 to-emerald-800 p-8 shadow-xl flex flex-col relative transform md:-translate-y-4">
-                        <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white text-emerald-800 text-xs font-bold px-4 py-1.5 rounded-full tracking-wide shadow-sm">MOST POPULAR</div>
-                        <h3 className="text-xl font-semibold text-emerald-50 mb-2">Pro</h3>
-                        <p className="text-emerald-100/80 text-sm mb-6">For busy professionals</p>
-                        <div className="text-4xl font-semibold tracking-tight text-white mb-6">RM 9.90<span className="text-lg text-emerald-100/80 font-normal">/mo</span></div>
-                        <ul className="space-y-4 mb-8 flex-1 text-sm text-emerald-50">
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-400" /> 20 Meetings per month</li>
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-400" /> Max 2 hours audio</li>
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-400" /> Priority support</li>
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-400" /> Custom branding on export</li>
-                        </ul>
-                        <Link href="/login" className="w-full">
-                            <button className="w-full rounded-full bg-white text-emerald-900 font-semibold py-3 hover:bg-slate-50 transition-colors shadow-sm">Get Pro</button>
-                        </Link>
+                    <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        {SUBSCRIPTION_TOP_UP_PACKS.map((pack) => (
+                            <div key={pack.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
+                                <p className="text-sm font-semibold text-slate-900">{pack.label}</p>
+                                <p className="mt-1 text-2xl font-semibold tracking-tight text-emerald-800">RM {pack.priceRm}</p>
+                                <p className="mt-3 text-xs leading-5 text-slate-500">{pack.copy}</p>
+                            </div>
+                        ))}
                     </div>
 
-                    {/* Max Plan */}
-                    <div className="rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200 flex flex-col">
-                        <h3 className="text-xl font-semibold text-slate-900 mb-2">Max</h3>
-                        <p className="text-slate-500 text-sm mb-6">For enterprise teams</p>
-                        <div className="text-4xl font-semibold tracking-tight text-slate-900 mb-6">RM 49.90<span className="text-lg text-slate-500 font-normal">/mo</span></div>
-                        <ul className="space-y-4 mb-8 flex-1 text-sm text-slate-700">
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-600" /> Unlimited Meetings</li>
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-600" /> Unlimited audio length</li>
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-600" /> 24/7 Premium support</li>
-                            <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-600" /> Team collaboration</li>
-                        </ul>
-                        <Link href="/login" className="w-full">
-                            <button className="w-full rounded-full bg-slate-100 text-slate-900 font-medium py-3 hover:bg-slate-200 transition-colors">Get Max</button>
-                        </Link>
-                    </div>
+                    <p className="mt-6 text-xs text-slate-500">
+                        Upgrades and top-ups are handled manually by admin for now. Payment gateway can be added in a later phase.
+                    </p>
                 </div>
             </div>
         </div>

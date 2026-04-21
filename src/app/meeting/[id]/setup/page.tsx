@@ -4,20 +4,39 @@ import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getCommitteeSpeakers } from '@/actions/committee-speakers'
 import { getItineraryTemplates } from '@/actions/itinerary-template'
 import { AppShell } from '@/components/app-shell'
+import { getEffectiveAiConfigForUserPlan } from '@/lib/ai/model-config'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
+import { getActiveBuildId } from '@/lib/app-build'
+import { listCanonicalCurrentMinutesForAgendaIds } from '@/lib/meeting-generation/current-minute'
+import { getActiveMomDraftBatchForMeeting } from '@/lib/meeting-generation/mom-drafts'
+import { inferResolvedOutcomeMode } from '@/lib/meeting-generation/resolved-outcome'
+import { getAllowedAiModelOptionsForPlan } from '@/lib/subscription/catalog'
 import { formatSecondsToTimecode } from '@/lib/timecode'
+import { resolveEffectiveMeetingSpeakers } from '@/lib/meeting-settings-overrides'
 import { getCommitteeGenerationSettings } from './committee-generation-actions'
-import type { AgendaTimelineRow } from './agenda-timeline-row'
+import type { AgendaLinkedDataState } from './agenda-linked-data'
+import { NO_TRANSCRIPTION_SEGMENT_MARKER, type AgendaTimelineRow } from './agenda-timeline-row'
 import { MeetingDashboard } from './meeting-dashboard'
 import { normalizeMeetingPackConfig } from './meeting-pack-model'
 import type { MinuteEntry } from './minute-entry'
+import { hydrateTemplateGroups } from './settings-template-model'
 
 export default async function MeetingSetupPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ tab?: string }>
 }) {
   const { id } = await params
+  const { tab: tabParam } = await searchParams
+  const initialTab = tabParam === 'dashboard'
+    || tabParam === 'agenda'
+    || tabParam === 'generate'
+    || tabParam === 'itineraries'
+    || tabParam === 'settings'
+    ? tabParam
+    : 'dashboard'
 
   let authedContext: Awaited<ReturnType<typeof requireAuthedAppContext>>
   try {
@@ -32,7 +51,7 @@ export default async function MeetingSetupPage({
 
   const { data: meeting, error: meetingError } = await supabase
     .from('meetings')
-    .select('*, committees(name), organizations(name)')
+    .select('*, committees(name, slug), organizations(name)')
     .eq('id', id)
     .single()
 
@@ -53,26 +72,123 @@ export default async function MeetingSetupPage({
 
   const agendaRows = agendas ?? []
   const agendaIds = agendaRows.map(agenda => agenda.id)
+  const agendaRevisionById = new Map(
+    agendaRows.map(agenda => [agenda.id, agenda.content_revision ?? 1]),
+  )
   const currentMinutesByAgenda: Record<string, MinuteEntry> = {}
+  const linkedDataByAgendaId: Record<string, AgendaLinkedDataState> = Object.fromEntries(
+    agendaRows.map(agenda => [agenda.id, {
+      hasMinute: false,
+      hasDraft: false,
+      hasActionItems: false,
+      resolvedOutcomeMode: null,
+    }]),
+  )
 
   if (agendaIds.length > 0) {
-    const { data: minutes, error: minutesError } = await supabase
-      .from('minutes')
-      .select('id, agenda_id, content, updated_at')
-      .eq('is_current', true)
-      .in('agenda_id', agendaIds)
+    try {
+      const minutes = await listCanonicalCurrentMinutesForAgendaIds<{
+        id: string
+        agenda_id: string
+        content: string
+        resolved_outcome_mode: 'closed' | 'follow_up' | null
+        source_agenda_revision: number | null
+        updated_at: string
+      }>({
+        supabase,
+        agendaIds,
+        extraColumns: 'content, updated_at, source_agenda_revision, resolved_outcome_mode',
+      })
 
-    if (minutesError) {
-      console.error('[setup/page] Minutes query error:', minutesError)
+      minutes.forEach(minute => {
+        const agendaContentRevision = agendaRevisionById.get(minute.agenda_id) ?? 1
+        const isStale = Boolean(minute.content.trim())
+          && (
+            minute.source_agenda_revision == null
+            || minute.source_agenda_revision < agendaContentRevision
+          )
+
+        currentMinutesByAgenda[minute.agenda_id] = {
+          content: minute.content,
+          updatedAt: minute.updated_at,
+          minuteId: minute.id,
+          sourceAgendaRevision: minute.source_agenda_revision ?? null,
+          agendaContentRevision,
+          isStale,
+          resolvedOutcomeMode: inferResolvedOutcomeMode({
+            resolvedOutcomeMode: minute.resolved_outcome_mode,
+            content: minute.content,
+          }),
+        }
+        linkedDataByAgendaId[minute.agenda_id] = {
+          ...(linkedDataByAgendaId[minute.agenda_id] ?? {
+            hasMinute: false,
+            hasDraft: false,
+            hasActionItems: false,
+            resolvedOutcomeMode: null,
+          }),
+          hasMinute: Boolean(minute.content.trim()),
+          resolvedOutcomeMode: inferResolvedOutcomeMode({
+            resolvedOutcomeMode: minute.resolved_outcome_mode,
+            content: minute.content,
+          }),
+        }
+      })
+    } catch (error) {
+      console.error('[setup/page] Minutes query error:', error)
+    }
+  }
+
+  if (agendaIds.length > 0) {
+    const [{ data: draftRows, error: draftError }, { data: actionRows, error: actionError }] = await Promise.all([
+      supabase
+        .from('mom_generation_drafts')
+        .select('agenda_id')
+        .eq('meeting_id', id)
+        .in('agenda_id', agendaIds),
+      supabase
+        .from('action_items')
+        .select('agenda_id')
+        .eq('meeting_id', id)
+        .in('agenda_id', agendaIds),
+    ])
+
+    if (draftError) {
+      console.error('[setup/page] Draft linkage query error:', draftError)
+    } else {
+      for (const row of draftRows ?? []) {
+        linkedDataByAgendaId[row.agenda_id] = {
+          ...(linkedDataByAgendaId[row.agenda_id] ?? {
+            hasMinute: false,
+            hasDraft: false,
+            hasActionItems: false,
+            resolvedOutcomeMode: null,
+          }),
+          hasDraft: true,
+        }
+      }
     }
 
-    ;(minutes ?? []).forEach(minute => {
-      currentMinutesByAgenda[minute.agenda_id] = {
-        content: minute.content,
-        updatedAt: minute.updated_at,
-        minuteId: minute.id,
+    if (actionError) {
+      console.error('[setup/page] Action item linkage query error:', actionError)
+    } else {
+      for (const row of actionRows ?? []) {
+        const existingLink = linkedDataByAgendaId[row.agenda_id] ?? {
+          hasMinute: false,
+          hasDraft: false,
+          hasActionItems: false,
+          resolvedOutcomeMode: null,
+        }
+        linkedDataByAgendaId[row.agenda_id] = {
+          ...existingLink,
+          hasActionItems: true,
+          resolvedOutcomeMode: existingLink.resolvedOutcomeMode ?? inferResolvedOutcomeMode({
+            hasActionItems: true,
+            content: currentMinutesByAgenda[row.agenda_id]?.content ?? null,
+          }),
+        }
       }
-    })
+    }
   }
 
   const templateIds = [
@@ -123,11 +239,12 @@ export default async function MeetingSetupPage({
 
   const latestTranscriptId = transcripts?.[0]?.id ?? null
   const initialTimelineRows: AgendaTimelineRow[] = []
+  let initialMomDraftBatch = null
 
   if (latestTranscriptId && agendaIds.length > 0) {
     const { data: segmentRows, error: segmentsError } = await supabase
       .from('transcript_segments')
-      .select('agenda_id, start_offset, end_offset')
+      .select('agenda_id, start_offset, end_offset, content')
       .eq('transcript_id', latestTranscriptId)
       .order('start_offset')
 
@@ -136,6 +253,7 @@ export default async function MeetingSetupPage({
     }
 
     const groupedByAgenda = new Map<string, { startSec: number; endSec: number }>()
+    const closureOnlyByAgenda = new Map<string, { startSec: number; endSec: number }>()
 
     for (const segment of segmentRows ?? []) {
       if (
@@ -143,6 +261,20 @@ export default async function MeetingSetupPage({
         segment.start_offset == null ||
         segment.end_offset == null
       ) {
+        continue
+      }
+
+      if (segment.content === NO_TRANSCRIPTION_SEGMENT_MARKER) {
+        const current = closureOnlyByAgenda.get(segment.agenda_id)
+        if (!current) {
+          closureOnlyByAgenda.set(segment.agenda_id, {
+            startSec: segment.start_offset,
+            endSec: segment.end_offset,
+          })
+        } else {
+          current.startSec = Math.min(current.startSec, segment.start_offset)
+          current.endSec = Math.max(current.endSec, segment.end_offset)
+        }
         continue
       }
 
@@ -160,6 +292,19 @@ export default async function MeetingSetupPage({
     }
 
     for (const agenda of agendaRows) {
+      const closureOnlyRow = closureOnlyByAgenda.get(agenda.id)
+      if (closureOnlyRow) {
+        initialTimelineRows.push({
+          agendaId: agenda.id,
+          agendaNo: agenda.agenda_no,
+          agendaTitle: agenda.title,
+          startTime: formatSecondsToTimecode(closureOnlyRow.startSec),
+          endTime: formatSecondsToTimecode(closureOnlyRow.endSec),
+          forcedResolvedOutcomeMode: 'closed',
+        })
+        continue
+      }
+
       const row = groupedByAgenda.get(agenda.id)
       if (!row) continue
       initialTimelineRows.push({
@@ -172,10 +317,25 @@ export default async function MeetingSetupPage({
     }
   }
 
+  try {
+    initialMomDraftBatch = await getActiveMomDraftBatchForMeeting(supabase, id)
+  } catch (error) {
+    console.error('[setup/page] MoM draft batch query failed:', error)
+    initialMomDraftBatch = null
+  }
+
   const committeeName =
-    (meeting.committees as unknown as { name: string } | null)?.name ?? null
+    (meeting.committees as unknown as { name: string; slug: string } | null)?.name ?? null
+  const committeeSlug =
+    (meeting.committees as unknown as { name: string; slug: string } | null)?.slug ?? null
   const orgName =
     (meeting.organizations as unknown as { name: string } | null)?.name ?? ''
+  const askModelOptions = getAllowedAiModelOptionsForPlan(profile.plan)
+  const defaultAskModelConfig = await getEffectiveAiConfigForUserPlan(
+    meeting.organization_id,
+    profile.plan,
+    'go_deeper_ask',
+  )
 
   let committeeGenerationSettings: Awaited<ReturnType<typeof getCommitteeGenerationSettings>> | null = null
   if (meeting.committee_id) {
@@ -207,11 +367,24 @@ export default async function MeetingSetupPage({
         return []
       })
     : []
+  const effectiveSpeakers = resolveEffectiveMeetingSpeakers({
+    committeeSpeakers,
+    meetingSpeakerOverrides: meeting.speaker_overrides ?? [],
+  })
 
   const initialMeetingPackConfig = normalizeMeetingPackConfig(
     meeting.meeting_pack_config,
     agendaRows,
   )
+
+  const initialTemplateGroups = hydrateTemplateGroups({
+    minuteInstruction: committeeGenerationSettings?.minuteInstruction ?? null,
+    minuteTemplateFileName: committeeGenerationSettings?.defaultFormatSourceName ?? null,
+    itineraryTemplates,
+    persistedGroups: Array.isArray(meeting.template_section_overrides) && meeting.template_section_overrides.length > 0
+      ? meeting.template_section_overrides
+      : committeeGenerationSettings?.templateSections ?? [],
+  })
 
   let initialRagDocuments: Array<{
     id: string; category: string; documentName: string; fileName: string; createdAt: string
@@ -242,6 +415,7 @@ export default async function MeetingSetupPage({
       committees={activeSecretariats.length > 0 ? activeSecretariats : committees}
       activeCommitteeId={meeting.committee_id ?? undefined}
       containerClassName="max-w-[1600px]"
+      initialBuildId={getActiveBuildId()}
     >
       <MeetingDashboard
         meetingId={id}
@@ -249,21 +423,31 @@ export default async function MeetingSetupPage({
         meetingDate={meeting.meeting_date}
         committeeName={committeeName}
         committeeId={meeting.committee_id ?? null}
+        committeeSlug={committeeSlug}
         organizationName={orgName}
         existingAgendas={agendaRows}
         agendaFormatPrompts={agendaFormatPrompts}
         hasExistingTranscript={(transcripts ?? []).length > 0}
         initialMeetingRules={
-          typeof meeting.meeting_rules === 'string' ? meeting.meeting_rules : ''
+          typeof meeting.meeting_rules === 'string' && meeting.meeting_rules.trim().length > 0
+            ? meeting.meeting_rules
+            : (committeeGenerationSettings?.minuteInstruction ?? '')
         }
-        committeeGenerationSettings={committeeGenerationSettings}
-        itineraryTemplates={itineraryTemplates}
-        committeeSpeakers={committeeSpeakers}
+        initialTemplateGroups={initialTemplateGroups}
+        committeeSpeakers={effectiveSpeakers}
         currentMinutesByAgenda={currentMinutesByAgenda}
+        linkedDataByAgendaId={linkedDataByAgendaId}
+        initialMomDraftBatch={initialMomDraftBatch}
         initialTimelineRows={initialTimelineRows}
         meetingStatus={meeting.status}
+        agendaColumnConfig={meeting.agenda_column_config ?? []}
+        agendaLockedAt={meeting.agenda_locked_at ?? null}
         initialMeetingPackConfig={initialMeetingPackConfig}
         initialRagDocuments={initialRagDocuments}
+        askModelOptions={askModelOptions}
+        defaultAskModelId={defaultAskModelConfig.model}
+        initialBuildId={getActiveBuildId()}
+        initialTab={initialTab}
       />
     </AppShell>
   )

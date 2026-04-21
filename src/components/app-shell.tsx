@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 
 import { Sidebar } from "@/components/sidebar"
 import { Navbar } from "@/components/navbar"
+import { BuildGuard } from "@/components/build-guard"
 import type { DashboardScope } from "@/lib/secretariat-access"
 import type { Committee, Profile } from "@/lib/supabase/types"
 import { cn } from "@/lib/utils"
@@ -23,6 +24,7 @@ interface AppShellProps {
   canViewOrgScope?: boolean
   mainClassName?: string
   containerClassName?: string
+  initialBuildId?: string | null
 }
 
 const SIDEBAR_PINNED_STORAGE_KEY = "secretariat.sidebar.pinned"
@@ -69,6 +71,7 @@ export function AppShell({
   canViewOrgScope = false,
   mainClassName,
   containerClassName,
+  initialBuildId = null,
 }: AppShellProps) {
   const pathname = usePathname()
   const reduceMotion = useReducedMotion()
@@ -78,7 +81,6 @@ export function AppShell({
     getSidebarPinnedSnapshot,
     () => false
   )
-
   const sidebarCollapsed = !sidebarPinned && !sidebarHovered
 
   const toggleSidebarPinned = () => {
@@ -97,6 +99,7 @@ export function AppShell({
 
   return (
     <div className="relative h-screen overflow-hidden bg-background">
+      <BuildGuard initialBuildId={initialBuildId} />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.12),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(15,118,110,0.08),transparent_28%)]" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[linear-gradient(180deg,rgba(255,255,255,0.88),rgba(255,255,255,0))]" />
       <div className="relative flex h-screen">

@@ -1,10 +1,25 @@
 import JSZip from 'jszip'
 
+const WORDPROCESSING_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+
+export type TemplateParagraphKind = 'title' | 'body' | 'value'
+
+export interface TemplateParagraphData {
+  text: string
+  kind?: TemplateParagraphKind
+}
+
+export type TemplateCellContent = string | {
+  paragraphs: TemplateParagraphData[]
+}
+
 interface TemplateData {
   meetingTitle: string
   meetingDate: string
   sectionTitle: string
-  rows: string[][] // each row = [col1, col2, ...]
+  meetingReference?: string | null
+  mode?: 'generic' | 'matter-arising'
+  rows: TemplateCellContent[][] // each row = [col1, col2, ...]
 }
 
 /**
@@ -58,9 +73,15 @@ function updateHeaderText(doc: Document, ns: string, data: TemplateData) {
     /\d{1,2}\/\d{1,2}\/\d{4}/,
     /\d{4}-\d{2}-\d{2}/,
   ]
+  const meetingReferencePattern = /\b\d{1,2}\/\d{2,4}\b/
 
   for (const textNode of headerTexts) {
     const text = textNode.textContent ?? ''
+
+    if (data.mode === 'matter-arising' && data.meetingReference && meetingReferencePattern.test(text)) {
+      textNode.textContent = text.replace(meetingReferencePattern, data.meetingReference)
+      continue
+    }
 
     // Replace date patterns
     for (const pattern of datePatterns) {
@@ -70,14 +91,14 @@ function updateHeaderText(doc: Document, ns: string, data: TemplateData) {
       }
     }
 
-    // Replace meeting title if node contains "meeting" keyword
-    if (/meeting\s+no\./i.test(text) || /mesyuarat/i.test(text)) {
+    // Replace meeting title if node contains a standalone meeting title label
+    if (data.mode !== 'matter-arising' && (/meeting\s+no\./i.test(text) || /mesyuarat/i.test(text))) {
       textNode.textContent = data.meetingTitle
     }
   }
 }
 
-function replaceTableRows(table: Element, ns: string, rows: string[][]) {
+function replaceTableRows(table: Element, ns: string, rows: TemplateCellContent[][]) {
   const tableRows = Array.from(table.getElementsByTagName('w:tr'))
   if (tableRows.length < 2) return // Need at least header + 1 data row
 
@@ -95,24 +116,80 @@ function replaceTableRows(table: Element, ns: string, rows: string[][]) {
     const cells = newRow.getElementsByTagName('w:tc')
 
     for (let c = 0; c < cells.length && c < rowData.length; c++) {
-      setCellText(cells[c], ns, rowData[c])
+      setCellContent(cells[c], ns, rowData[c])
     }
 
     table.appendChild(newRow)
   }
 }
 
-function setCellText(cell: Element, _ns: string, text: string) {
-  // Find all <w:t> elements in the cell and set text on the first one,
-  // clear the rest. This preserves <w:rPr> formatting on the first run.
-  const textNodes = cell.getElementsByTagName('w:t')
-  if (textNodes.length === 0) return
+function setCellContent(cell: Element, _ns: string, content: TemplateCellContent) {
+  const paragraphTemplates = Array.from(cell.getElementsByTagName('w:p')).map(paragraph => (
+    paragraph.cloneNode(true) as Element
+  ))
+  if (paragraphTemplates.length === 0) return
+
+  while (cell.firstChild) {
+    cell.removeChild(cell.firstChild)
+  }
+
+  const paragraphs = typeof content === 'string'
+    ? String(content ?? '').split(/\r?\n/).map(line => ({ text: line, kind: 'value' as const }))
+    : (content.paragraphs.length > 0 ? content.paragraphs : [{ text: '', kind: 'value' as const }])
+
+  paragraphs.forEach(paragraphData => {
+    const paragraph = cloneParagraphTemplate(paragraphTemplates, paragraphData.kind ?? 'value')
+    setParagraphText(paragraph, paragraphData.text)
+    cell.appendChild(paragraph)
+  })
+}
+
+function cloneParagraphTemplate(paragraphTemplates: Element[], kind: TemplateParagraphKind) {
+  const nonEmptyIndexes = paragraphTemplates
+    .map((paragraph, index) => (hasVisibleText(paragraph) ? index : -1))
+    .filter(index => index >= 0)
+
+  const firstNonEmptyIndex = nonEmptyIndexes[0] ?? 0
+  const firstBodyIndex = paragraphTemplates.findIndex((paragraph, index) => (
+    index > firstNonEmptyIndex
+    && (hasVisibleText(paragraph) || !paragraphHasUnderline(paragraph))
+  ))
+  const valueIndex = firstNonEmptyIndex
+
+  let targetIndex = valueIndex
+  if (kind === 'title') {
+    targetIndex = firstNonEmptyIndex
+  } else if (kind === 'body') {
+    targetIndex = firstBodyIndex >= 0
+      ? firstBodyIndex
+      : Math.min(firstNonEmptyIndex + 1, paragraphTemplates.length - 1)
+  }
+
+  return paragraphTemplates[targetIndex].cloneNode(true) as Element
+}
+
+function hasVisibleText(paragraph: Element) {
+  return Array.from(paragraph.getElementsByTagName('w:t'))
+    .some(textNode => (textNode.textContent ?? '').trim().length > 0)
+}
+
+function paragraphHasUnderline(paragraph: Element) {
+  return paragraph.getElementsByTagName('w:u').length > 0
+}
+
+function setParagraphText(paragraph: Element, text: string) {
+  let textNodes = paragraph.getElementsByTagName('w:t')
+  if (textNodes.length === 0) {
+    const run = paragraph.ownerDocument.createElementNS(WORDPROCESSING_NS, 'w:r')
+    const textNode = paragraph.ownerDocument.createElementNS(WORDPROCESSING_NS, 'w:t')
+    run.appendChild(textNode)
+    paragraph.appendChild(run)
+    textNodes = paragraph.getElementsByTagName('w:t')
+  }
 
   textNodes[0].textContent = text
-  // Preserve space attribute so leading/trailing spaces aren't trimmed
   textNodes[0].setAttribute('xml:space', 'preserve')
 
-  // Clear remaining <w:t> nodes (merged runs)
   for (let i = textNodes.length - 1; i >= 1; i--) {
     const run = textNodes[i].parentNode
     if (run) run.removeChild(textNodes[i])

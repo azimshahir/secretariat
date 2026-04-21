@@ -5,6 +5,7 @@ import { SecretariatWizard } from '@/components/secretariat-wizard/wizard-shell'
 import { Button } from '@/components/ui/button'
 import { PERSONA_TEMPLATES } from '@/lib/ai/persona-templates'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
+import { getActiveBuildId } from '@/lib/app-build'
 
 export default async function NewSecretariatPage({
   searchParams,
@@ -32,6 +33,7 @@ export default async function NewSecretariatPage({
         </Button>
       }
       containerClassName="max-w-[1320px]"
+      initialBuildId={getActiveBuildId()}
     >
       <SecretariatWizard
         existingSecretariats={committees.map(committee => ({

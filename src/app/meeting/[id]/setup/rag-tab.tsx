@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import { ChevronDown, ChevronRight, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
@@ -8,12 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
-import {
-  deleteCommitteeRagDocument,
-  listCommitteeRagDocuments,
-  uploadCommitteeRagDocument,
-  type CommitteeRagDocumentSummary,
-} from './rag-actions'
+import { deleteJson, getJson, postFormData } from '@/lib/api/client'
+import type { CommitteeRagDocumentSummary } from './rag-types'
 
 type DocumentCategory = 'TOR' | 'Policy' | 'Framework' | 'Manual' | 'Books' | 'Others'
 
@@ -54,20 +51,29 @@ function formatDate(value: string) {
 interface RagTabProps {
   committeeId: string | null
   initialDocuments: CommitteeRagDocumentSummary[]
+  readOnly?: boolean
+  settingsHref?: string | null
 }
 
-export function RagTab({ committeeId, initialDocuments }: RagTabProps) {
-  const [isRagOpen, setIsRagOpen] = useState(true)
+export function RagTab({
+  committeeId,
+  initialDocuments,
+  readOnly = false,
+  settingsHref = null,
+}: RagTabProps) {
+  const [isRagOpen, setIsRagOpen] = useState(false)
   const [documents, setDocuments] = useState<DocumentDraft[]>([createDocumentDraft()])
   const [uploadedDocuments, setUploadedDocuments] = useState<CommitteeRagDocumentSummary[]>(initialDocuments)
   const [isPending, startTransition] = useTransition()
-  const disabled = !committeeId
+  const disabled = !committeeId || readOnly
 
   async function refreshDocuments() {
     if (!committeeId) return
     try {
-      const rows = await listCommitteeRagDocuments(committeeId)
-      setUploadedDocuments(rows)
+      const result = await getJson<{ ok: true; documents: CommitteeRagDocumentSummary[] }>(
+        `/api/admin/committee-rag?committeeId=${committeeId}`,
+      )
+      setUploadedDocuments(result.documents)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load RAG documents')
     }
@@ -108,12 +114,12 @@ export function RagTab({ committeeId, initialDocuments }: RagTabProps) {
           const documentName = document.category === 'Others'
             ? document.customName.trim()
             : document.category
-          await uploadCommitteeRagDocument(
-            committeeId,
-            document.category,
-            documentName,
-            document.file,
-          )
+          const formData = new FormData()
+          formData.set('committeeId', committeeId)
+          formData.set('category', document.category)
+          formData.set('documentName', documentName)
+          formData.set('file', document.file)
+          await postFormData<{ ok: true }>('/api/admin/committee-rag', formData)
         }
         setDocuments([createDocumentDraft()])
         await refreshDocuments()
@@ -127,7 +133,7 @@ export function RagTab({ committeeId, initialDocuments }: RagTabProps) {
   function handleDelete(documentId: string) {
     startTransition(async () => {
       try {
-        await deleteCommitteeRagDocument(documentId)
+        await deleteJson<{ ok: true }>('/api/admin/committee-rag', { documentId })
         setUploadedDocuments(prev => prev.filter(document => document.id !== documentId))
         toast.success('RAG document deleted')
       } catch (error) {
@@ -141,7 +147,11 @@ export function RagTab({ committeeId, initialDocuments }: RagTabProps) {
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <div className="space-y-1.5">
           <CardTitle>RAG</CardTitle>
-          <CardDescription>Upload committee reference PDFs for retrieval during minute generation.</CardDescription>
+          <CardDescription>
+            {readOnly
+              ? 'Committee knowledge is managed at the committee workspace level and is available to this meeting as shared bank/context reference material.'
+              : 'Upload bank/context/reference documents for retrieval during minute generation and chat. Do not use RAG for formatting rules or minute templates.'}
+          </CardDescription>
         </div>
         <Button
           type="button"
@@ -155,94 +165,111 @@ export function RagTab({ committeeId, initialDocuments }: RagTabProps) {
       </CardHeader>
       {isRagOpen && (
         <CardContent className="space-y-4">
-          <div className="space-y-3">
-            {documents.map((document, index) => (
-              <div key={document.id} className="space-y-3 rounded-md border p-3">
-                <p className="text-sm font-medium text-zinc-600">Document {index + 1}</p>
+          {!readOnly ? (
+            <>
+              <div className="space-y-3">
+                {documents.map((document, index) => (
+                  <div key={document.id} className="space-y-3 rounded-md border p-3">
+                    <p className="text-sm font-medium text-zinc-600">Document {index + 1}</p>
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <label htmlFor={`category-${document.id}`} className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                      Document Type
-                    </label>
-                    <select
-                      id={`category-${document.id}`}
-                      value={document.category}
-                      disabled={disabled || isPending}
-                      className="border-input bg-background h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50"
-                      onChange={event => updateDocument(document.id, current => ({
-                        ...current,
-                        category: event.target.value as DocumentCategory,
-                        customName: event.target.value === 'Others' ? current.customName : '',
-                      }))}
-                    >
-                      {CATEGORY_OPTIONS.map(option => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <label htmlFor={`category-${document.id}`} className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                          Document Type
+                        </label>
+                        <select
+                          id={`category-${document.id}`}
+                          value={document.category}
+                          disabled={disabled || isPending}
+                          className="border-input bg-background h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50"
+                          onChange={event => updateDocument(document.id, current => ({
+                            ...current,
+                            category: event.target.value as DocumentCategory,
+                            customName: event.target.value === 'Others' ? current.customName : '',
+                          }))}
+                        >
+                          {CATEGORY_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="space-y-1.5">
-                    <label htmlFor={`file-${document.id}`} className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                      Upload Document
-                    </label>
-                    <Input
-                      id={`file-${document.id}`}
-                      type="file"
-                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      disabled={disabled || isPending}
-                      onChange={event => updateDocument(document.id, current => ({
-                        ...current,
-                        file: event.target.files?.[0] ?? null,
-                      }))}
-                    />
-                  </div>
-                </div>
+                      <div className="space-y-1.5">
+                        <label htmlFor={`file-${document.id}`} className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                          Upload Document
+                        </label>
+                        <Input
+                          id={`file-${document.id}`}
+                          type="file"
+                          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                          disabled={disabled || isPending}
+                          onChange={event => updateDocument(document.id, current => ({
+                            ...current,
+                            file: event.target.files?.[0] ?? null,
+                          }))}
+                        />
+                      </div>
+                    </div>
 
-                {document.category === 'Others' && (
-                  <div className="space-y-1.5">
-                    <label htmlFor={`other-name-${document.id}`} className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                      Document Name
-                    </label>
-                    <Input
-                      id={`other-name-${document.id}`}
-                      value={document.customName}
-                      disabled={disabled || isPending}
-                      onChange={event => updateDocument(document.id, current => ({ ...current, customName: event.target.value }))}
-                      placeholder="Please include document name"
-                    />
-                  </div>
-                )}
+                    {document.category === 'Others' && (
+                      <div className="space-y-1.5">
+                        <label htmlFor={`other-name-${document.id}`} className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                          Document Name
+                        </label>
+                        <Input
+                          id={`other-name-${document.id}`}
+                          value={document.customName}
+                          disabled={disabled || isPending}
+                          onChange={event => updateDocument(document.id, current => ({ ...current, customName: event.target.value }))}
+                          placeholder="Please include document name"
+                        />
+                      </div>
+                    )}
 
-                {document.file && (
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline">{document.file.name}</Badge>
+                    {document.file && (
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{document.file.name}</Badge>
+                      </div>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
-            ))}
-          </div>
 
-          <Separator />
+              <Separator />
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <Button type="button" variant="outline" className="gap-2" onClick={addDocument} disabled={disabled || isPending}>
-              <Plus className="h-4 w-4" />
-              Add documents
-            </Button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Button type="button" variant="outline" className="gap-2" onClick={addDocument} disabled={disabled || isPending}>
+                  <Plus className="h-4 w-4" />
+                  Add documents
+                </Button>
 
-            <Button type="button" className="gap-2" onClick={handleUploadAll} disabled={disabled || isPending}>
-              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              Upload All
-            </Button>
-          </div>
+                <Button type="button" className="gap-2" onClick={handleUploadAll} disabled={disabled || isPending}>
+                  {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Upload All
+                </Button>
+              </div>
 
-          {disabled && (
-            <p className="text-xs text-zinc-500">
-              Attach this meeting to a committee first to manage RAG documents.
-            </p>
+              {disabled && (
+                <p className="text-xs text-zinc-500">
+                  Attach this meeting to a committee first to manage RAG documents.
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              Committee RAG applies to this meeting automatically as supporting institutional context. Agenda papers still control agenda-specific facts, and exact templates still control final output shape.
+              {settingsHref ? (
+                <>
+                  {' '}
+                  Manage uploads in{' '}
+                  <Link href={settingsHref} className="font-semibold underline underline-offset-2">
+                    Committee Settings
+                  </Link>.
+                </>
+              ) : null}
+            </div>
           )}
 
           <div className="space-y-2">
@@ -266,17 +293,19 @@ export function RagTab({ committeeId, initialDocuments }: RagTabProps) {
                         {document.documentName} • {document.category} • {formatDate(document.createdAt)}
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5"
-                      onClick={() => handleDelete(document.id)}
-                      disabled={isPending}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete
-                    </Button>
+                    {!readOnly ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => handleDelete(document.id)}
+                        disabled={isPending}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </Button>
+                    ) : null}
                   </div>
                 ))}
               </div>

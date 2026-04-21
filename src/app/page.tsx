@@ -4,13 +4,18 @@ import { AppShell } from '@/components/app-shell'
 import { CreationCards } from '@/components/creation-cards'
 import { DashboardOverview } from '@/components/dashboard-overview'
 import { MeetingTable } from '@/components/meeting-table'
+import {
+  deriveWorkflowAutoStatuses,
+} from '@/app/meeting/[id]/setup/setup-workflow'
 import { ensureUserProvisioned } from '@/lib/auth/provision'
+import { getActiveBuildId } from '@/lib/app-build'
 import {
   canViewOrganizationScope,
   normalizeDashboardScope,
 } from '@/lib/secretariat-access'
 import { createClient } from '@/lib/supabase/server'
-import type { MeetingStatus } from '@/lib/supabase/types'
+import type { Agenda, MeetingStatus } from '@/lib/supabase/types'
+import { normalizeMeetingStatus } from '@/lib/meeting-links'
 
 const meetingStatusPriority: Record<MeetingStatus, number> = {
   in_progress: 6,
@@ -26,14 +31,45 @@ function normalizeMeetingTitle(value: string) {
 }
 
 function pickPreferredMeeting<
-  T extends { status: MeetingStatus; created_at: string }
+  T extends { status: string | null | undefined; created_at: string }
 >(a: T, b: T) {
-  const priorityA = meetingStatusPriority[a.status]
-  const priorityB = meetingStatusPriority[b.status]
+  const priorityA = meetingStatusPriority[normalizeMeetingStatus(a.status)]
+  const priorityB = meetingStatusPriority[normalizeMeetingStatus(b.status)]
   if (priorityA !== priorityB) return priorityA > priorityB ? a : b
   return new Date(a.created_at).getTime() >= new Date(b.created_at).getTime()
     ? a
     : b
+}
+
+function deriveRegisterStatus(params: {
+  meetingId: string
+  meetingStatus: string | null | undefined
+  agendaLocked: boolean
+  agendas: Agenda[]
+  hasExistingTranscript: boolean
+}): MeetingStatus | 'done' {
+  const normalizedMeetingStatus = normalizeMeetingStatus(params.meetingStatus)
+
+  try {
+    const workflowStatuses = deriveWorkflowAutoStatuses({
+      agendas: params.agendas,
+      agendaLocked: params.agendaLocked,
+      hasExistingTranscript: params.hasExistingTranscript,
+    })
+    const allWorkflowStepsDone = Object.values(workflowStatuses).every(
+      status => status === 'done'
+    )
+
+    return normalizedMeetingStatus === 'finalized'
+      ? 'finalized'
+      : (allWorkflowStepsDone ? 'done' : normalizedMeetingStatus)
+  } catch (error) {
+    console.error('Failed to derive dashboard workflow status', {
+      meetingId: params.meetingId,
+      error,
+    })
+    return normalizedMeetingStatus
+  }
 }
 
 export default async function DashboardPage({
@@ -124,6 +160,7 @@ export default async function DashboardPage({
         committees={allCommittees}
         dashboardScope={dashboardScope}
         canViewOrgScope={canViewOrganizationScope(profile.role)}
+        initialBuildId={getActiveBuildId()}
         eyebrow="Workspace"
         title="Create your first secretariat"
         description="Secretariats come first in this workflow. Once a secretariat exists, the dashboard calendar, meeting creation, and operational insights become available."
@@ -137,7 +174,7 @@ export default async function DashboardPage({
   const { data: meetingsRaw } = await supabase
     .from('meetings')
     .select(
-      'id, title, meeting_date, status, created_at, committee_id, committees(name)'
+      'id, title, meeting_date, status, created_at, committee_id, agenda_locked_at, committees(name)'
     )
     .order('meeting_date', { ascending: true })
 
@@ -172,22 +209,23 @@ export default async function DashboardPage({
       new Date(right.meeting_date).getTime()
   )
 
-  const meetings = dedupedMeetings.map(meeting => ({
+  const baseMeetings = dedupedMeetings.map(meeting => ({
     id: meeting.id,
     title: meeting.title,
     meeting_date: meeting.meeting_date,
-    status: meeting.status,
+    status: normalizeMeetingStatus(meeting.status),
+    agenda_locked_at: meeting.agenda_locked_at,
     committee_id: meeting.committee_id,
     committee_name:
       (meeting.committees as unknown as { name: string } | null)?.name ?? null,
   }))
 
-  const scopedMeetingIds = meetings.map(meeting => meeting.id)
+  const scopedMeetingIds = baseMeetings.map(meeting => meeting.id)
   const { data: agendas } =
     scopedMeetingIds.length > 0
       ? await supabase
           .from('agendas')
-          .select('id, meeting_id')
+          .select('id, meeting_id, agenda_no, title, slide_pages, sort_order')
           .in('meeting_id', scopedMeetingIds)
       : { data: [] }
   const { data: transcripts } =
@@ -208,11 +246,15 @@ export default async function DashboardPage({
       : { data: [] }
 
   const agendaCountByMeeting = new Map<string, number>()
+  const agendasByMeeting = new Map<string, Agenda[]>()
   for (const agenda of agendas ?? []) {
     agendaCountByMeeting.set(
       agenda.meeting_id,
       (agendaCountByMeeting.get(agenda.meeting_id) ?? 0) + 1
     )
+    const current = agendasByMeeting.get(agenda.meeting_id) ?? []
+    current.push(agenda as Agenda)
+    agendasByMeeting.set(agenda.meeting_id, current)
   }
 
   const transcriptCountByMeeting = new Map<string, number>()
@@ -237,6 +279,19 @@ export default async function DashboardPage({
       (minuteCountByMeeting.get(agenda.meeting_id) ?? 0) + 1
     )
   }
+
+  const meetings = baseMeetings.map(meeting => {
+    return {
+      ...meeting,
+      registerStatus: deriveRegisterStatus({
+        meetingId: meeting.id,
+        meetingStatus: meeting.status,
+        agendaLocked: Boolean(meeting.agenda_locked_at),
+        agendas: agendasByMeeting.get(meeting.id) ?? [],
+        hasExistingTranscript: (transcriptCountByMeeting.get(meeting.id) ?? 0) > 0,
+      }),
+    }
+  })
 
   const pendingJobs = [
     {
@@ -338,6 +393,7 @@ export default async function DashboardPage({
       activeCommitteeId={activeCommittee?.id}
       dashboardScope={dashboardScope}
       canViewOrgScope={canViewOrganizationScope(profile.role)}
+      initialBuildId={getActiveBuildId()}
       containerClassName="max-w-[1500px]"
     >
       <DashboardOverview

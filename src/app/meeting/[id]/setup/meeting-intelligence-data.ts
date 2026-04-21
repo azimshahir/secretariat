@@ -1,7 +1,9 @@
 'use client'
 
-import type { CommitteeSpeaker } from '@/actions/committee-speakers'
+import type { CommitteeSpeaker } from '@/lib/committee-speakers'
+import type { ResolvedOutcomeMode } from '@/lib/meeting-generation/resolved-outcome'
 import type { Agenda } from '@/lib/supabase/types'
+import type { AgendaLinkedDataState } from './agenda-linked-data'
 import type { AgendaTimelineRow } from './agenda-timeline-row'
 import type { MinuteEntry } from './minute-entry'
 
@@ -21,6 +23,8 @@ export interface AgendaAnalyticsRecord {
   interruptions: number
   objections: number
   actionItems: number
+  hasRecordedActionItem: boolean
+  resolvedOutcomeMode: ResolvedOutcomeMode | null
   decisionMade: boolean
   sentimentScore: number
   heatScore: number
@@ -98,6 +102,7 @@ interface BuildMeetingIntelligenceInput {
   existingAgendas: Agenda[]
   timelineRows: AgendaTimelineRow[]
   currentMinutesByAgenda: Record<string, MinuteEntry>
+  linkedDataByAgendaId: Record<string, AgendaLinkedDataState>
   committeeSpeakers: CommitteeSpeaker[]
 }
 
@@ -164,7 +169,8 @@ function seededItem<T>(seedKey: string, items: readonly T[]) {
   return items[seededInt(seedKey, 0, items.length - 1)]
 }
 
-function parseTimecodeToSeconds(value: string) {
+function parseTimecodeToSeconds(value: string | null | undefined) {
+  if (!value) return 0
   const parts = value.split(':').map(Number)
   if (parts.some(Number.isNaN)) return 0
   if (parts.length === 3) {
@@ -177,7 +183,7 @@ function parseTimecodeToSeconds(value: string) {
 }
 
 function minutesFromTimeline(row?: AgendaTimelineRow) {
-  if (!row) return null
+  if (!row || !row.startTime || !row.endTime) return null
   const seconds = Math.max(0, parseTimecodeToSeconds(row.endTime) - parseTimecodeToSeconds(row.startTime))
   const minutes = seconds / 60
   return minutes > 0 ? round(minutes, 1) : null
@@ -252,6 +258,7 @@ function buildAgendaBaseRecord(
   agenda: Agenda,
   timelineRow: AgendaTimelineRow | undefined,
   minute: MinuteEntry | undefined,
+  linkedData: AgendaLinkedDataState | undefined,
   meetingId: string,
 ) {
   const seedBase = `${meetingId}:${agenda.id}:${agenda.agenda_no}`
@@ -275,8 +282,16 @@ function buildAgendaBaseRecord(
     0,
     8,
   )
-  const decisionMade = inferDecision(minute?.content, seedBase)
-  const actionItems = inferActionItemCount(minute?.content, seedBase, decisionMade)
+  const resolvedOutcomeMode = linkedData?.resolvedOutcomeMode ?? minute?.resolvedOutcomeMode ?? null
+  const decisionMade = resolvedOutcomeMode != null
+    ? true
+    : inferDecision(minute?.content, seedBase)
+  const inferredActionItems = inferActionItemCount(minute?.content, seedBase, decisionMade)
+  const actionItems = resolvedOutcomeMode === 'closed'
+    ? 0
+    : resolvedOutcomeMode === 'follow_up'
+      ? Math.max(1, inferredActionItems)
+      : inferredActionItems
   const sentimentScore = round((seededFraction(`${seedBase}:sentiment`) * 1.4) - 0.4, 2)
 
   return {
@@ -291,6 +306,8 @@ function buildAgendaBaseRecord(
     interruptions,
     objections,
     actionItems,
+    hasRecordedActionItem: resolvedOutcomeMode === 'follow_up',
+    resolvedOutcomeMode,
     decisionMade,
     sentimentScore,
   }
@@ -380,6 +397,7 @@ export function buildMeetingIntelligenceDataset({
   existingAgendas,
   timelineRows,
   currentMinutesByAgenda,
+  linkedDataByAgendaId,
   committeeSpeakers,
 }: BuildMeetingIntelligenceInput): MeetingIntelligenceDataset {
   const timelineByAgendaId = new Map(timelineRows.map(row => [row.agendaId, row]))
@@ -389,6 +407,7 @@ export function buildMeetingIntelligenceDataset({
       agenda,
       timelineByAgendaId.get(agenda.id),
       currentMinutesByAgenda[agenda.id],
+      linkedDataByAgendaId[agenda.id],
       meetingId,
     ),
   )
@@ -426,7 +445,7 @@ export function buildMeetingIntelligenceDataset({
       ) * 100,
     )
 
-    const status: AgendaStatus = agenda.actionItems > 0 && !agenda.decisionMade
+    const status: AgendaStatus = agenda.resolvedOutcomeMode === 'follow_up'
       ? 'Needs Follow-up'
       : agenda.actualMinutes > agenda.plannedMinutes * 1.15
         ? 'Overrun'
@@ -526,4 +545,3 @@ export function buildMeetingIntelligenceDataset({
     },
   }
 }
-

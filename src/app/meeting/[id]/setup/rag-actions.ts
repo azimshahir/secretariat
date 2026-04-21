@@ -1,19 +1,10 @@
 'use server'
 
-import mammoth from 'mammoth'
-import { PDFParse } from 'pdf-parse'
 import { createClient } from '@/lib/supabase/server'
 import { uuidSchema } from '@/lib/validation'
+import type { CommitteeRagDocumentSummary } from './rag-types'
 
 const MAX_RAG_FILE_MB = 40
-
-export interface CommitteeRagDocumentSummary {
-  id: string
-  category: string
-  documentName: string
-  fileName: string
-  createdAt: string
-}
 
 function normalizeWhitespace(value: string) {
   return value
@@ -150,9 +141,11 @@ export async function uploadCommitteeRagDocument(
   let extractedText = ''
 
   if (isDocx(file)) {
+    const mammoth = await import('mammoth')
     const result = await mammoth.extractRawText({ buffer })
     extractedText = result.value ?? ''
   } else {
+    const { PDFParse } = await import('pdf-parse')
     const parser = new PDFParse({ data: buffer })
     try {
       const extracted = await parser.getText()

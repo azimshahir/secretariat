@@ -191,3 +191,92 @@
 .ProseMirror ol {
   list-style-type: decimal;
 }
+
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] {
+  position: relative;
+  display: block;
+  border-left: 4px solid oklch(0.67 0.1 210);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.92), rgba(247, 252, 255, 0.88));
+  border-radius: 0.9rem;
+  padding: 0.85rem 1rem 0.95rem;
+  margin-block: 0.7rem;
+}
+
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"]::before {
+  content: attr(data-minute-source-label);
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 0.6rem;
+  border: 1px solid rgba(125, 211, 252, 0.9);
+  background: rgba(255, 255, 255, 0.88);
+  color: oklch(0.44 0.09 220);
+  border-radius: 999px;
+  padding: 0.18rem 0.58rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > :last-child {
+  margin-bottom: 0;
+}
+
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"][data-minute-source-note]::after {
+  content: attr(data-minute-source-note);
+  display: block;
+  margin-top: 0.65rem;
+  border-top: 1px dashed rgba(125, 211, 252, 0.9);
+  padding-top: 0.55rem;
+  color: oklch(0.42 0.05 220);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > p:first-of-type,
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > ul:first-of-type,
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > ol:first-of-type,
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > h1:first-of-type,
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > h2:first-of-type,
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > h3:first-of-type,
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > h4:first-of-type,
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > h5:first-of-type,
+.ProseMirror [data-minute-source-bundle="true"][data-minute-source="paper"] > h6:first-of-type {
+  margin-top: 0;
+}
+
+.ProseMirror [data-minute-source="paper"]:not([data-minute-source-bundle="true"]) {
+  position: relative;
+  border-left: 4px solid oklch(0.67 0.1 210);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.92), rgba(247, 252, 255, 0.88));
+  border-radius: 0.9rem;
+  padding: 0.85rem 1rem 0.95rem;
+  margin-block: 0.7rem;
+}
+
+.ProseMirror [data-minute-source="paper"]:not([data-minute-source-bundle="true"])::before {
+  content: attr(data-minute-source-label);
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 0.6rem;
+  border: 1px solid rgba(125, 211, 252, 0.9);
+  background: rgba(255, 255, 255, 0.88);
+  color: oklch(0.44 0.09 220);
+  border-radius: 999px;
+  padding: 0.18rem 0.58rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ProseMirror [data-minute-source="paper"]:not([data-minute-source-bundle="true"])[data-minute-source-note]::after {
+  content: attr(data-minute-source-note);
+  display: block;
+  margin-top: 0.65rem;
+  border-top: 1px dashed rgba(125, 211, 252, 0.9);
+  padding-top: 0.55rem;
+  color: oklch(0.42 0.05 220);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}

@@ -1,10 +1,10 @@
 'use client'
 
 import { useCallback, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { Button } from '@/components/ui/button'
 import { StepConfiguration } from './step-configuration'
 import { StepIndustry } from './step-industry'
@@ -21,8 +21,8 @@ const INITIAL_STATE: WizardState = {
   ragFiles: [{ id: 'rag-1', category: 'TOR', customName: '', file: null }],
 }
 
-export function SecretariatWizard({ existingSecretariats, firstRun, personaTemplates }: WizardProps) {
-  const router = useRouter()
+export function SecretariatWizard({ personaTemplates }: WizardProps) {
+  const { push } = useNavigationTransition()
   const [state, setState] = useState<WizardState>(INITIAL_STATE)
   const [isPending, startTransition] = useTransition()
   const onChange = useCallback((u: Partial<WizardState>) => setState(p => ({ ...p, ...u })), [])
@@ -41,7 +41,7 @@ export function SecretariatWizard({ existingSecretariats, firstRun, personaTempl
       try {
         const { slug } = await submitWizard(state)
         toast.success('Secretariat created successfully')
-        router.push(`/secretariat/${slug}`)
+        push(`/secretariat/${slug}`)
       } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to create secretariat') }
     })
   }

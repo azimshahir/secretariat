@@ -1,15 +1,17 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Plus, Loader2 } from 'lucide-react'
+import { postFormData } from '@/lib/api/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { saveGlossaryTerm } from './actions'
 
 interface GlossaryItem { id: string; acronym: string; full_meaning: string }
 
 export function GlossarySection({ committeeId, glossary }: { committeeId: string; glossary: GlossaryItem[] }) {
+  const router = useRouter()
   const [editing, setEditing] = useState(false)
   const [isPending, startTransition] = useTransition()
 
@@ -19,7 +21,8 @@ export function GlossarySection({ committeeId, glossary }: { committeeId: string
         await saveGlossaryTerm(formData)
         toast.success('Glossary term saved')
         setEditing(false)
-      } catch { toast.error('Failed to save glossary term') }
+        router.refresh()
+      } catch (error) { toast.error(error instanceof Error ? error.message : 'Failed to save glossary term') }
     })
   }
 
@@ -35,7 +38,13 @@ export function GlossarySection({ committeeId, glossary }: { committeeId: string
       </div>
 
       {editing && (
-        <form action={handleSubmit} className="space-y-3 rounded-md border p-4">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            handleSubmit(new FormData(event.currentTarget))
+          }}
+          className="space-y-3 rounded-md border p-4"
+        >
           <input type="hidden" name="committeeId" value={committeeId} />
           <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
             <Input name="acronym" placeholder="Acronym" required />
@@ -74,4 +83,8 @@ export function GlossarySection({ committeeId, glossary }: { committeeId: string
       )}
     </div>
   )
+}
+
+async function saveGlossaryTerm(formData: FormData) {
+  await postFormData<{ ok: true }>('/api/settings/glossary', formData)
 }

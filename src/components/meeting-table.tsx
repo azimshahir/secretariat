@@ -1,23 +1,45 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
-import { motion } from 'framer-motion'
-import { ArrowUpRight, Building2, CalendarDays, Clock3, Plus } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { useMemo, useState } from 'react'
+import {
+  ArrowUpRight,
+  Building2,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  FolderKanban,
+  Plus,
+} from 'lucide-react'
+
+import {
+  DashboardPill,
+  DashboardSectionIntro,
+  DashboardSurface,
+} from '@/components/dashboard-primitives'
 import { CreationCards } from '@/components/creation-cards'
 import { NormalMeetingDialog } from '@/components/normal-meeting-dialog'
+import { Button } from '@/components/ui/button'
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '@/components/ui/table'
-import type { MeetingStatus, Committee } from '@/lib/supabase/types'
+import { getMeetingLink } from '@/lib/meeting-links'
+import type { Committee, MeetingStatus } from '@/lib/supabase/types'
+import { cn } from '@/lib/utils'
+
+type MeetingRegisterStatus = MeetingStatus | 'done'
 
 interface MeetingRow {
   id: string
   title: string
   meeting_date: string
   status: MeetingStatus
+  registerStatus: MeetingRegisterStatus
   committee_name: string | null
 }
 
@@ -27,28 +49,72 @@ interface Props {
   activeCommitteeId?: string
 }
 
-const statusConfig: Record<MeetingStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  draft: { label: 'Draft', variant: 'outline' },
-  pending_setup: { label: 'Pending Setup', variant: 'secondary' },
-  mapping: { label: 'Mapping', variant: 'secondary' },
-  generating: { label: 'Generating', variant: 'default' },
-  in_progress: { label: 'In Progress', variant: 'default' },
-  finalized: { label: 'Finalized', variant: 'destructive' },
+const statusConfig: Record<
+  MeetingRegisterStatus,
+  {
+    label: string
+    className: string
+    helper: string
+  }
+> = {
+  draft: {
+    label: 'Draft',
+    className: 'border-zinc-200 bg-zinc-50 text-zinc-700',
+    helper: 'Agenda structure still being shaped.',
+  },
+  pending_setup: {
+    label: 'Pending Setup',
+    className: 'border-amber-200 bg-amber-50 text-amber-700',
+    helper: 'Needs setup inputs before analysis can proceed.',
+  },
+  mapping: {
+    label: 'Mapping',
+    className: 'border-cyan-200 bg-cyan-50 text-cyan-700',
+    helper: 'Transcript and agenda alignment is still underway.',
+  },
+  generating: {
+    label: 'Generating',
+    className: 'border-violet-200 bg-violet-50 text-violet-700',
+    helper: 'Minutes or supporting outputs are being generated.',
+  },
+  in_progress: {
+    label: 'In Progress',
+    className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    helper: 'Ready for active working and review.',
+  },
+  done: {
+    label: 'Done',
+    className: 'border-emerald-200 bg-emerald-100 text-emerald-700',
+    helper: 'All three workflow steps are complete and ready for final handling.',
+  },
+  finalized: {
+    label: 'Finalized',
+    className: 'border-teal-200 bg-teal-50 text-teal-700',
+    helper: 'Record is complete and ready for viewing.',
+  },
 }
 
-function getMeetingLink(id: string, status: MeetingStatus) {
-  switch (status) {
-    case 'draft':
-    case 'pending_setup':
-      return `/meeting/${id}/setup`
-    case 'mapping':
-      return `/meeting/${id}/map`
-    case 'generating':
-    case 'in_progress':
-      return `/meeting/${id}/setup`
-    case 'finalized':
-      return `/meeting/${id}/view`
-  }
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString('en-MY', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function MeetingStatusPill({ status }: { status: MeetingRegisterStatus }) {
+  const config = statusConfig[status] ?? statusConfig.in_progress
+
+  return (
+    <span
+      className={cn(
+        'inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]',
+        config.className,
+      )}
+    >
+      {config.label}
+    </span>
+  )
 }
 
 export function MeetingTable({ meetings, committees, activeCommitteeId }: Props) {
@@ -57,22 +123,35 @@ export function MeetingTable({ meetings, committees, activeCommitteeId }: Props)
     ? committees.find(c => c.id === activeCommitteeId)
     : null
 
-  // Secretariat empty state — committee selected but no meetings yet
+  const registerStats = useMemo(() => {
+    return {
+      active: meetings.filter(meeting => meeting.status !== 'finalized').length,
+      finalized: meetings.filter(meeting => meeting.status === 'finalized').length,
+    }
+  }, [meetings])
+
   if (meetings.length === 0 && activeCommittee) {
     return (
       <>
-        <div className="flex flex-col items-center justify-center gap-4 py-20">
-          <Building2 className="h-10 w-10 text-zinc-300" />
-          <div className="text-center space-y-1">
-            <h2 className="text-lg font-semibold">Create your first meeting</h2>
-            <p className="text-sm text-zinc-500">
-              Get started by creating a meeting for {activeCommittee.name}
-            </p>
+        <DashboardSurface tone="muted" padding="lg" className="text-center">
+          <div className="mx-auto flex max-w-lg flex-col items-center gap-4 py-10">
+            <div className="flex h-14 w-14 items-center justify-center rounded-[20px] border border-border/70 bg-white text-primary shadow-sm">
+              <Building2 className="h-6 w-6" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="font-display text-[1.45rem] font-semibold tracking-[-0.04em] text-foreground">
+                Create your first meeting
+              </h2>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Start the operational register for {activeCommittee.name} and the dashboard surfaces will light up from there.
+              </p>
+            </div>
+            <Button onClick={() => setShowCreate(true)} className="gap-2 rounded-[12px]">
+              <Plus className="h-4 w-4" />
+              Create a new meeting
+            </Button>
           </div>
-          <Button onClick={() => setShowCreate(true)} className="gap-2">
-            <Plus className="h-4 w-4" /> Create a new meeting
-          </Button>
-        </div>
+        </DashboardSurface>
         <NormalMeetingDialog
           open={showCreate}
           onOpenChange={setShowCreate}
@@ -83,102 +162,119 @@ export function MeetingTable({ meetings, committees, activeCommitteeId }: Props)
     )
   }
 
-  // Global empty state — no committee, no meetings
   if (meetings.length === 0) {
     return <CreationCards committees={committees} />
   }
 
   return (
-    <div className="rounded-[30px] border border-border/70 bg-white/92 p-4 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.42)] backdrop-blur md:p-5">
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-primary/65">
-            Active workspaces
-          </p>
-          <h3 className="font-display text-2xl font-semibold tracking-[-0.04em] text-foreground">
-            Meeting register
-          </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Review upcoming and active meetings across the secretariats you can
-            access.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-3 py-1.5">
-            <Clock3 className="h-3.5 w-3.5 text-primary" />
-            {meetings.length} total records
-          </span>
-        </div>
+    <DashboardSurface padding="lg">
+      <DashboardSectionIntro
+        eyebrow="Operational register"
+        title="Meeting Register"
+        description="A denser working list for upcoming sessions, active workspaces, and finalized records across the secretariats you can access."
+        actions={(
+          <>
+            <DashboardPill tone="primary">
+              <FolderKanban className="h-3.5 w-3.5" />
+              {meetings.length} total
+            </DashboardPill>
+            <DashboardPill>
+              <Clock3 className="h-3.5 w-3.5" />
+              {registerStats.active} active
+            </DashboardPill>
+            <DashboardPill tone="success">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {registerStats.finalized} finalized
+            </DashboardPill>
+          </>
+        )}
+      />
+
+      <div className="mt-4 overflow-hidden rounded-[22px] border border-border/70 bg-white/94">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-border/70 bg-secondary/20 hover:bg-secondary/20">
+              <TableHead className="h-10 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Meeting
+              </TableHead>
+              <TableHead className="h-10 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Date
+              </TableHead>
+              <TableHead className="h-10 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Committee
+              </TableHead>
+              <TableHead className="h-10 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Status
+              </TableHead>
+              <TableHead className="h-10 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Next Step
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {meetings.map(meeting => {
+              const config = statusConfig[meeting.registerStatus] ?? statusConfig.in_progress
+              const href = getMeetingLink(meeting.id, meeting.status)
+
+              return (
+                <TableRow
+                  key={meeting.id}
+                  className="border-border/60 transition-colors hover:bg-primary/5"
+                >
+                  <TableCell className="py-3.5">
+                    <div className="min-w-[250px] space-y-1">
+                      <Link
+                        href={href}
+                        className="block text-sm font-semibold text-foreground transition-colors hover:text-primary"
+                      >
+                        {meeting.title}
+                      </Link>
+                      <p className="text-[12px] leading-5 text-muted-foreground">
+                        {config.helper}
+                      </p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="py-3.5 text-sm text-muted-foreground">
+                    <span className="inline-flex items-center gap-2">
+                      <CalendarDays className="h-3.5 w-3.5 text-primary" />
+                      {formatDate(meeting.meeting_date)}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-3.5 text-sm text-foreground">
+                    {meeting.committee_name ?? 'General'}
+                  </TableCell>
+                  <TableCell className="py-3.5">
+                    <MeetingStatusPill status={meeting.registerStatus} />
+                  </TableCell>
+                  <TableCell className="py-3.5 text-right">
+                    <Button
+                      asChild
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-full px-3 text-[12px]"
+                    >
+                      <Link href={href}>
+                        Open
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Meeting Title</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead>Committee</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Action</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {meetings.map((meeting, index) => {
-            const config = statusConfig[meeting.status]
-            return (
-              <motion.tr
-                key={meeting.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: index * 0.04 }}
-                className="group border-b border-border/60 transition-colors hover:bg-secondary/45"
-              >
-                <TableCell className="min-w-[240px]">
-                  <div className="space-y-1">
-                    <Link
-                      href={getMeetingLink(meeting.id, meeting.status)}
-                      className="font-medium text-foreground transition-colors hover:text-primary"
-                    >
-                      {meeting.title}
-                    </Link>
-                    <p className="text-xs text-muted-foreground">
-                      Workspace ready for setup, generation, or final review.
-                    </p>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CalendarDays className="h-3.5 w-3.5 text-primary" />
-                    {new Date(meeting.meeting_date).toLocaleDateString('en-MY', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </span>
-                </TableCell>
-                <TableCell className="text-sm text-foreground">
-                  {meeting.committee_name ?? 'General'}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={config.variant}>{config.label}</Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    asChild
-                    size="sm"
-                    variant="outline"
-                    className="h-9 rounded-full px-3"
-                  >
-                    <Link href={getMeetingLink(meeting.id, meeting.status)}>
-                      Open
-                      <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                    </Link>
-                  </Button>
-                </TableCell>
-              </motion.tr>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-[12px] text-muted-foreground">
+        <DashboardPill>
+          <CalendarDays className="h-3.5 w-3.5" />
+          {registerStats.active} open workspace{registerStats.active === 1 ? '' : 's'}
+        </DashboardPill>
+        <DashboardPill>
+          Rows stay compact so the register works like an operational queue, not a gallery.
+        </DashboardPill>
+      </div>
+    </DashboardSurface>
   )
 }

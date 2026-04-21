@@ -5,6 +5,9 @@ import { generateObject } from 'ai'
 import { anthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { maybeApplyCommitteeFormattingDefaultToMeeting } from '@/lib/committee-formatting-defaults-server'
+import type { DatabaseClient } from '@/lib/meeting-generation/shared'
+import { recordMeetingCreatedUsage } from '@/lib/subscription/entitlements'
 import { createMeetingSchema } from '@/lib/validation'
 import type { MeetingStatus } from '@/lib/supabase/types'
 
@@ -167,6 +170,15 @@ export async function createMeeting(formData: FormData) {
     details: { title, meeting_date: meetingDate, committee_id: committeeId },
   })
 
+  try {
+    await recordMeetingCreatedUsage({
+      userId: user.id,
+      organizationId: profile.organization_id,
+    })
+  } catch (error) {
+    console.warn('[createMeeting] failed to record subscription usage', error)
+  }
+
   redirect(`/meeting/${meeting.id}/setup`)
 }
 
@@ -281,6 +293,15 @@ export async function createMeetingWithAgendas(params: {
         sort_order: i,
       })),
     )
+
+    try {
+      await maybeApplyCommitteeFormattingDefaultToMeeting(
+        supabase as unknown as DatabaseClient,
+        meeting.id,
+      )
+    } catch (error) {
+      console.error('[createMeetingWithAgendas] committee formatting default apply failed:', error)
+    }
   }
 
   await supabase.from('audit_logs').insert({
@@ -295,6 +316,15 @@ export async function createMeetingWithAgendas(params: {
       ai_suggested: true,
     },
   })
+
+  try {
+    await recordMeetingCreatedUsage({
+      userId: user.id,
+      organizationId: profile.organization_id,
+    })
+  } catch (error) {
+    console.warn('[createMeetingWithAgendas] failed to record subscription usage', error)
+  }
 
   return {
     meetingId: meeting.id,
@@ -342,24 +372,5 @@ export async function updateAgenda(agendaId: string, fields: {
   if (!user) redirect('/login')
 
   const { error } = await supabase.from('agendas').update(fields).eq('id', agendaId)
-  if (error) throw new Error(error.message)
-}
-
-export async function saveAgendaTemplate(committeeId: string, templateJson: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  // Delete existing "Default Agenda" template for this committee, then insert new one
-  await supabase.from('format_templates')
-    .delete()
-    .eq('committee_id', committeeId)
-    .eq('name', 'Default Agenda')
-
-  const { error } = await supabase.from('format_templates').insert({
-    committee_id: committeeId,
-    name: 'Default Agenda',
-    prompt_text: templateJson,
-  })
   if (error) throw new Error(error.message)
 }

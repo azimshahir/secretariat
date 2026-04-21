@@ -1,7 +1,7 @@
 import Link from 'next/link'
 
 import { AppShell } from '@/components/app-shell'
-import { FormSubmitButton } from '@/components/form-submit-button'
+import { MeetingCreateForm } from '@/components/meeting-create-form'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -10,9 +10,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { createMeeting } from '@/actions/meeting'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
+import { getActiveBuildId } from '@/lib/app-build'
 
 interface NewMeetingPageProps {
   searchParams: Promise<{
@@ -41,6 +40,7 @@ export default async function NewMeetingPage({
         </Button>
       }
       containerClassName="max-w-4xl"
+      initialBuildId={getActiveBuildId()}
     >
       <Card className="mx-auto w-full max-w-2xl">
         <CardHeader>
@@ -82,6 +82,7 @@ export default async function NewMeetingPage({
         </Button>
       }
       containerClassName="max-w-5xl"
+      initialBuildId={getActiveBuildId()}
     >
       {createdSecretariat === '1' && selectedCommittee ? (
         <div className="mx-auto w-full max-w-2xl rounded-[22px] border border-emerald-200 bg-emerald-50/90 px-5 py-4 text-sm text-emerald-900 shadow-[0_18px_40px_-32px_rgba(16,185,129,0.45)]">
@@ -108,55 +109,18 @@ export default async function NewMeetingPage({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={createMeeting} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="title" className="text-sm font-medium">
-                Meeting Title
-              </label>
-              <Input
-                id="title"
-                name="title"
-                placeholder={
-                  selectedCommittee
-                    ? `e.g., ${selectedCommittee.name} Meeting No. 3/${currentYear}`
-                    : `e.g., ALCO Meeting No. 3/${currentYear}`
-                }
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="meetingDate" className="text-sm font-medium">
-                Meeting Date
-              </label>
-              <Input id="meetingDate" name="meetingDate" type="date" required />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="committeeId" className="text-sm font-medium">
-                Secretariat
-              </label>
-              <select
-                id="committeeId"
-                name="committeeId"
-                defaultValue={selectedCommittee?.id ?? ''}
-                required
-                className="h-11 rounded-2xl border border-border/80 bg-white/80 px-4 text-sm shadow-[0_12px_32px_-28px_rgba(15,23,42,0.45)] outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/30"
-              >
-                <option value="" disabled>
-                  Select a secretariat
-                </option>
-                {committees.map(committee => (
-                  <option key={committee.id} value={committee.id}>
-                    {committee.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <FormSubmitButton
-              className="mt-2"
-              idleLabel="Create Meeting"
-              pendingLabel="Creating..."
-            />
-          </form>
+          <MeetingCreateForm
+            committees={committees.map(committee => ({
+              id: committee.id,
+              name: committee.name,
+            }))}
+            selectedCommitteeId={selectedCommittee?.id}
+            titlePlaceholder={
+              selectedCommittee
+                ? `e.g., ${selectedCommittee.name} Meeting No. 3/${currentYear}`
+                : `e.g., ALCO Meeting No. 3/${currentYear}`
+            }
+          />
         </CardContent>
       </Card>
     </AppShell>

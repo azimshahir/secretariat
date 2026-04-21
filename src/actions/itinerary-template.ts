@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { TEMPLATE_SECTION_IDS } from '@/app/meeting/[id]/setup/settings-template-model'
 
 const MISSING_ITINERARY_TABLE_HINT = 'Database migration missing: public.itinerary_templates'
 
@@ -39,7 +40,10 @@ export async function uploadItineraryTemplate(
   }
 
   const sectionKey = toSectionKey(sectionTitle)
-  const ext = file.name.split('.').pop() ?? 'docx'
+  const ext = file.name.split('.').pop()?.trim().toLowerCase() ?? 'docx'
+  if (sectionKey === TEMPLATE_SECTION_IDS.extractMinute && ext !== 'docx') {
+    throw new Error('Extract Minute requires a DOCX template')
+  }
   const path = `committee-templates/${committeeId}/${sectionKey}.${ext}`
 
   // Upload (upsert) to storage

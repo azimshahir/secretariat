@@ -4,7 +4,8 @@ import { AppShell } from '@/components/app-shell'
 import { ExportDocument } from '@/components/export-document'
 import { Button } from '@/components/ui/button'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
-import { finalizeMeeting } from './actions'
+import { getActiveBuildId } from '@/lib/app-build'
+import { FinalizeMeetingButton } from './finalize-meeting-button'
 
 export default async function ExportPage({
   params,
@@ -61,7 +62,6 @@ export default async function ExportPage({
 
   const committeeName =
     (meeting.committees as unknown as { name: string } | null)?.name ?? 'General'
-  const finalizeAction = finalizeMeeting.bind(null, id)
   const purgeDate = meeting.purge_at
     ? new Date(meeting.purge_at).toLocaleDateString('en-MY')
     : null
@@ -93,13 +93,12 @@ export default async function ExportPage({
               Finalized{purgeDate ? ` - Purge on ${purgeDate}` : ''}
             </span>
           ) : (
-            <form action={finalizeAction}>
-              <Button size="sm">Finalize Meeting</Button>
-            </form>
+            <FinalizeMeetingButton meetingId={id} />
           )}
         </div>
       }
       containerClassName="max-w-[1400px]"
+      initialBuildId={getActiveBuildId()}
     >
       <ExportDocument
         title={meeting.title}
