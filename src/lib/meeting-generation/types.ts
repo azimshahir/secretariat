@@ -39,8 +39,10 @@ export interface CommitteeGenerationContext {
   minuteInstruction: string
 }
 
+/** @deprecated V2 engine doesn't use multi-stage checkpoints */
 export type MomDraftCompletedStage = 'prompt1' | 'prompt2' | 'summary' | 'final'
 
+/** @deprecated V2 engine doesn't use multi-stage checkpoints */
 export interface MomDraftCheckpointPayload {
   sourceAgendaRevision?: number | null
   prompt1Output?: string | null

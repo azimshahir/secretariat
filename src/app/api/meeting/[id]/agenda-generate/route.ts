@@ -4,6 +4,7 @@ import {
   AgendaMinuteGenerationError,
   generateMinutesForAgendaWithClient,
 } from '@/lib/meeting-generation/generate-minutes'
+import { generateAndSaveMinuteV2 } from '@/lib/meeting-generation/generate-minute-v2-bridge'
 import { generateConfigSchema, uuidSchema } from '@/lib/validation'
 import {
   CommitteeGenerationApiError,
@@ -17,6 +18,7 @@ export const maxDuration = 300
 const bodySchema = z.object({
   agendaId: uuidSchema,
   generationConfig: generateConfigSchema,
+  useV2: z.boolean().optional(),
 })
 
 export async function POST(
@@ -26,7 +28,7 @@ export async function POST(
   try {
     const { id } = await params
     const meetingId = uuidSchema.parse(id)
-    const { agendaId, generationConfig } = bodySchema.parse(await request.json())
+    const { agendaId, generationConfig, useV2 } = bodySchema.parse(await request.json())
     const context = await requireWritableMeetingContext(meetingId)
 
     const { data: agenda, error: agendaError } = await context.adminSupabase
@@ -41,6 +43,30 @@ export async function POST(
     if (!agenda) {
       throw new Error('Agenda not found in this meeting')
     }
+
+    // V2 path: single prompt per agenda
+    if (useV2) {
+      const v2Result = await generateAndSaveMinuteV2({
+        supabase: context.adminSupabase,
+        meetingId,
+        agendaId,
+        userId: context.userId,
+        organizationId: context.organizationId,
+      })
+      return NextResponse.json({
+        ok: true,
+        content: v2Result.content,
+        markers: [],
+        minuteId: v2Result.minuteId,
+        resolvedOutcomeMode: null,
+        resolutionVariantKey: null,
+        resolutionVariantLabel: null,
+        resolutionVariantSource: null,
+        resolutionExactRenderEnforced: false,
+      })
+    }
+
+    // Legacy path
     const forcedResolvedOutcomeMode = generationConfig.forcedResolvedOutcomeModes?.[agendaId] ?? null
 
     const result = await generateMinutesForAgendaWithClient({

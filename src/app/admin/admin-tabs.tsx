@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { LayoutDashboard, Users, BarChart3, Building2, Bot, ScrollText, Inbox } from 'lucide-react'
-import type { AdminAiTask, AiProvider, EffectiveAiConfig } from '@/lib/ai/catalog'
+import type { AdminAiTask, EffectiveAiConfig } from '@/lib/ai/catalog'
 import type { TranscriptIntelligencePreset } from '@/lib/ai/transcript-intelligence'
 import type { PlanTier, UserSubscriptionUsageMonthly } from '@/lib/supabase/types'
 import { TabOverview } from './tab-overview'
@@ -68,7 +68,6 @@ interface Props {
   // ai model
   aiConfigs: Record<PlanTier, Record<AdminAiTask, EffectiveAiConfig>>
   transcriptPreset: TranscriptIntelligencePreset
-  aiOptions: Record<AiProvider, string[]>
   // audit
   auditLogs: AuditLog[]
   // custom requests
@@ -144,7 +143,7 @@ export function AdminTabs(props: Props) {
       </TabsContent>
       <TabsContent value="ai-model" className="mt-6">
         <TranscriptIntelligenceSettings initialPreset={props.transcriptPreset} />
-        <AiModelSettings initialConfigs={props.aiConfigs} options={props.aiOptions} />
+        <AiModelSettings initialConfigs={props.aiConfigs} />
       </TabsContent>
       <TabsContent value="audit-logs" className="mt-6">
         <TabAuditLogs logs={props.auditLogs} />

@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation'
 import { AppShell } from '@/components/app-shell'
 import { requireAuthedAppContext } from '@/lib/authenticated-app'
 import { getActiveBuildId } from '@/lib/app-build'
-import { AI_PROVIDER_MODELS } from '@/lib/ai/catalog'
 import { getPlanAiConfigMatrixForOrganization } from '@/lib/ai/model-config'
 import { getTranscriptIntelligencePresetForOrganization } from '@/lib/ai/transcript-intelligence-server'
 import { INDUSTRY_CATEGORIES } from '@/lib/ai/persona-templates'
@@ -243,7 +242,6 @@ export default async function AdminPage() {
           categories={[...INDUSTRY_CATEGORIES]}
           aiConfigs={adminAiConfigs}
           transcriptPreset={transcriptPreset}
-          aiOptions={AI_PROVIDER_MODELS}
           auditLogs={formattedLogs}
           customRequests={customRequestsFormatted}
           subscriptionSetupPending={subscriptionCompatibility.subscriptionSetupPending}

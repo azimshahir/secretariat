@@ -1,3 +1,8 @@
+/**
+ * @deprecated Use generate-minute-prompt.ts instead.
+ * This is the old 3-prompt chain (Context Clean → Cross-Ref → Synthesis).
+ * Replaced by a single prompt in V2 architecture.
+ */
 // 3-Prompt Execution Engine for minute generation
 // Runs PER AGENDA — each agenda gets its own pipeline
 

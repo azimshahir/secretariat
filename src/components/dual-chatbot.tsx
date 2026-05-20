@@ -421,10 +421,12 @@ export function DualChatbot({
   const [activeTab, setActiveTab] = useState<'ask' | 'agent'>('ask')
   const [askModelId, setAskModelId] = useState(() => (
     typeof window === 'undefined'
-      ? ''
+      ? (allowedAskModelIds[0] ?? '')
       : (
           readStoredAskChatModelId(window.localStorage, allowedAskModelIds)
           || (allowedAskModelIds.includes(defaultAskModelId) ? defaultAskModelId : '')
+          || allowedAskModelIds[0]
+          || ''
         )
   ))
   const effectiveAskModelId = (
@@ -487,17 +489,10 @@ export function DualChatbot({
               Agent
             </TabsTrigger>
           </TabsList>
-          {activeTab === 'ask' ? (
-            <select
-              value={effectiveAskModelId}
-              onChange={event => setAskModelId(event.target.value)}
-              className="h-8 min-w-[180px] rounded-full border border-zinc-200 bg-white/92 px-3 text-[11px] shadow-[0_12px_24px_-20px_rgba(15,23,42,0.45)] dark:border-zinc-700 dark:bg-zinc-800"
-            >
-              <option value="">Choose Ask model</option>
-              {askModelOptions.map(model => (
-                <option key={model.id} value={model.id}>{model.label}</option>
-              ))}
-            </select>
+          {activeTab === 'ask' && effectiveAskModelId ? (
+            <div className="rounded-full border border-zinc-200 bg-white/92 px-3 py-1.5 text-[11px] text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              {askModelOptions.find(m => m.id === effectiveAskModelId)?.label ?? effectiveAskModelId}
+            </div>
           ) : null}
         </div>
         <TabsContent value="ask" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">

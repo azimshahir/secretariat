@@ -1,3 +1,8 @@
+/**
+ * @deprecated Use generate-minute-v2.ts instead.
+ * This file contains the legacy 6-8 prompt chain (4600+ lines).
+ * Kept for backward compatibility until V2 is fully verified.
+ */
 import { generateObject, generateText } from 'ai'
 import { z } from 'zod'
 import { getDefaultPersona } from '@/lib/ai/personas'

@@ -1,7 +1,6 @@
 import 'server-only'
 
 import { anthropic } from '@ai-sdk/anthropic'
-import { google } from '@ai-sdk/google'
 import { openai } from '@ai-sdk/openai'
 import {
   AI_PROVIDER_MODELS,
@@ -49,9 +48,8 @@ function isMissingAiTaskSettingsColumn(error: { code?: string | null; message?: 
 }
 
 const ENV_DEFAULTS: Record<AiProvider, string> = {
-  anthropic: 'claude-sonnet-4-5-20250929',
+  anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-5',
-  google: 'gemini-2.5-pro',
 }
 
 const AI_TASK_FIELD_MAP: Record<AiTask, {
@@ -91,13 +89,6 @@ function assertProviderKey(provider: AiProvider) {
   }
   if (provider === 'openai' && !(process.env.OPENAI_API_KEY ?? '').trim()) {
     throw new Error('OPENAI_API_KEY is missing for OpenAI model selection.')
-  }
-  if (provider === 'google') {
-    const hasGoogleKey = Boolean((process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? '').trim())
-      || Boolean((process.env.GOOGLE_API_KEY ?? '').trim())
-    if (!hasGoogleKey) {
-      throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is missing for Gemini model selection.')
-    }
   }
 }
 
@@ -288,8 +279,7 @@ export async function resolveLanguageModelForOrganization(
   assertProviderKey(config.provider)
 
   if (config.provider === 'anthropic') return anthropic(config.model)
-  if (config.provider === 'openai') return openai(config.model)
-  return google(config.model)
+  return openai(config.model)
 }
 
 export async function resolveLanguageModelForUserPlan(
@@ -301,8 +291,7 @@ export async function resolveLanguageModelForUserPlan(
   assertProviderKey(config.provider)
 
   if (config.provider === 'anthropic') return anthropic(config.model)
-  if (config.provider === 'openai') return openai(config.model)
-  return google(config.model)
+  return openai(config.model)
 }
 
 export function resolveModelById(modelId: string) {
@@ -310,8 +299,7 @@ export function resolveModelById(modelId: string) {
   if (!provider) throw new Error(`Unknown model: ${modelId}`)
   assertProviderKey(provider)
   if (provider === 'anthropic') return anthropic(modelId)
-  if (provider === 'openai') return openai(modelId)
-  return google(modelId)
+  return openai(modelId)
 }
 
 export {

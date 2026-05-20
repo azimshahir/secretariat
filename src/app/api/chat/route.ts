@@ -1,5 +1,4 @@
 import { anthropic } from '@ai-sdk/anthropic'
-import { google } from '@ai-sdk/google'
 import { openai } from '@ai-sdk/openai'
 import { streamText } from 'ai'
 import {
@@ -159,33 +158,18 @@ function getWebSearchConfig(provider: AiProvider) {
     }
   }
 
-  if (provider === 'openai') {
-    return {
-      tools: {
-        web_search: openai.tools.webSearch({
-          externalWebAccess: true,
-          searchContextSize: 'medium',
-        }),
-      },
-      toolChoice: {
-        type: 'tool' as const,
-        toolName: 'web_search',
-      },
-      label: 'openai_web_search',
-    }
-  }
-
   return {
     tools: {
-      google_search: google.tools.googleSearch({
-        mode: 'MODE_UNSPECIFIED',
+      web_search: openai.tools.webSearch({
+        externalWebAccess: true,
+        searchContextSize: 'medium',
       }),
     },
     toolChoice: {
       type: 'tool' as const,
-      toolName: 'google_search',
+      toolName: 'web_search',
     },
-    label: 'google_search',
+    label: 'openai_web_search',
   }
 }
 

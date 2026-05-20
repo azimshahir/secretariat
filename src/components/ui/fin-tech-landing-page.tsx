@@ -9,7 +9,7 @@ import { usePathname } from "next/navigation";
 import { InteractiveDemo } from "@/components/ui/interactive-demo";
 import {
     SUBSCRIPTION_PLANS,
-    SUBSCRIPTION_PLAN_ORDER,
+    SUBSCRIPTION_DISPLAY_TIERS,
     SUBSCRIPTION_TOP_UP_PACKS,
 } from "@/lib/subscription/catalog";
 
@@ -294,10 +294,9 @@ export function HowItWorksSection({ bgClass = "bg-[#F3F5F7]" }: { bgClass?: stri
 
 export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
     const tierDescriptions: Record<string, string> = {
-        free: "For trying the workflow",
-        basic: "For solo users with light audio review",
-        pro: "For small teams running real meetings",
-        premium: "For departments with heavier workloads",
+        free: "Try the full workflow free",
+        pro: "For working Company Secretaries",
+        premium: "Unlimited meetings, priority support",
     };
 
     return (
@@ -310,8 +309,8 @@ export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
                     <p className="text-slate-600 max-w-2xl mx-auto text-lg">Choose the plan that fits your workflow, then top up credits or transcription hours only when you need more.</p>
                 </div>
 
-                <div className="grid gap-8 lg:grid-cols-4">
-                    {SUBSCRIPTION_PLAN_ORDER.map((tier) => {
+                <div className="grid gap-8 lg:grid-cols-3 max-w-4xl mx-auto">
+                    {SUBSCRIPTION_DISPLAY_TIERS.map((tier) => {
                         const plan = SUBSCRIPTION_PLANS[tier];
                         const isFeatured = tier === "pro";
 
@@ -340,9 +339,9 @@ export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
                                 <ul className={`mb-8 flex-1 space-y-4 text-sm ${isFeatured ? "text-emerald-50" : "text-slate-700"}`}>
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.operatorsLabel}</li>
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.committeeAllowanceLabel}</li>
-                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.transcriptReviewJobs} transcript reviews / month</li>
-                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.transcriptionHours > 0 ? `${plan.transcriptionHours} transcription hrs / month` : "No audio/video upload"}</li>
-                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.includedCredits} included credits / month</li>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.transcriptReviewJobs >= 999 ? 'Unlimited' : plan.transcriptReviewJobs} meetings / month</li>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.transcriptionHours > 0 ? `${plan.transcriptionHours} transcription hrs` : "No audio/video upload"}</li>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> Claude Sonnet 4 AI engine</li>
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.supportLabel}</li>
                                 </ul>
 
