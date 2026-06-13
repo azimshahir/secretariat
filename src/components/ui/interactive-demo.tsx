@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { UploadCloud, FileAudio, FileText, CheckCircle2, AlertCircle, Loader2, Sparkles, Lock, ArrowRight, LayoutTemplate } from "lucide-react";
 
@@ -10,6 +10,7 @@ interface MockResult {
     title: string;
     date: string;
     summary: string;
+    sections?: { label: string; items: string[] }[];
     actionItems: { assignee: string; task: string; dueDate: string }[];
 }
 
@@ -24,6 +25,22 @@ export function InteractiveDemo() {
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [selectedTemplate, setSelectedTemplate] = useState<File | null>(null);
+    const [durationSeconds, setDurationSeconds] = useState(0);
+    const clientIdRef = useRef<string>("");
+
+    // Stable per-browser id (combined with IP server-side for rate limiting)
+    useEffect(() => {
+        try {
+            let id = localStorage.getItem("demo_client_id");
+            if (!id) {
+                id = crypto.randomUUID();
+                localStorage.setItem("demo_client_id", id);
+            }
+            clientIdRef.current = id;
+        } catch {
+            // localStorage unavailable (private mode) — IP-only limiting still applies
+        }
+    }, []);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, isTemplate: boolean = false) => {
         const file = e.target.files?.[0];
@@ -37,6 +54,7 @@ export function InteractiveDemo() {
         setSelectedFile(file);
         setState("idle");
         setErrorMessage("");
+        setDurationSeconds(0);
 
         // Check duration for audio/video
         if (file.type.startsWith("audio/") || file.type.startsWith("video/")) {
@@ -45,6 +63,7 @@ export function InteractiveDemo() {
 
             audio.onloadedmetadata = () => {
                 URL.revokeObjectURL(url);
+                setDurationSeconds(Math.round(audio.duration));
                 if (audio.duration > 300) { // 300 seconds = 5 minutes
                     setState("error_duration");
                     setErrorMessage("Recording exceeds 5 minutes. Please log in to process longer meetings (up to 2 hours per meeting on Pro).");
@@ -71,13 +90,21 @@ export function InteractiveDemo() {
         setState("processing");
         setProgressMsg("Uploading securely...");
 
-        // Simulate upload
-        await new Promise(r => setTimeout(r, 1000));
-        setProgressMsg("AI is transcribing audio...");
+        const isMedia = selectedFile.type.startsWith("audio/") || selectedFile.type.startsWith("video/");
+        setProgressMsg(isMedia ? "AI is transcribing audio..." : "AI is reading transcript...");
 
         try {
+            const formData = new FormData();
+            formData.append("file", selectedFile);
+            formData.append("clientId", clientIdRef.current);
+            formData.append("durationSeconds", String(durationSeconds));
+            if (selectedTemplate) {
+                formData.append("template", selectedTemplate);
+            }
+
             const res = await fetch("/api/demo/generate", {
                 method: "POST",
+                body: formData,
             });
 
             const data = await res.json();
@@ -89,11 +116,10 @@ export function InteractiveDemo() {
             }
 
             setProgressMsg("Structuring action items...");
-            await new Promise(r => setTimeout(r, 1200));
 
             setResult(data.data);
             setState("success");
-        } catch (err) {
+        } catch {
             setState("error_limit");
             setErrorMessage("Network error. Please try again.");
         }
@@ -104,6 +130,7 @@ export function InteractiveDemo() {
         setSelectedTemplate(null);
         setState("idle");
         setResult(null);
+        setDurationSeconds(0);
         if (fileInputRef.current) fileInputRef.current.value = "";
         if (templateInputRef.current) templateInputRef.current.value = "";
     };
@@ -178,7 +205,7 @@ export function InteractiveDemo() {
                                         ref={templateInputRef}
                                         onChange={(e) => handleFileChange(e, true)}
                                         className="hidden"
-                                        accept=".docx,.pdf"
+                                        accept=".docx,.txt"
                                     />
 
                                     {selectedTemplate ? (
@@ -195,7 +222,7 @@ export function InteractiveDemo() {
                                                 <FileText className="w-6 h-6" />
                                             </div>
                                             <p className="font-medium text-slate-600">Attach Previous Template <span className="text-slate-400 font-normal">(Optional)</span></p>
-                                            <p className="text-xs text-slate-400">Match your company's MoM format</p>
+                                            <p className="text-xs text-slate-400">Match your company&apos;s MoM format</p>
                                         </div>
                                     )}
                                 </div>
@@ -289,6 +316,21 @@ export function InteractiveDemo() {
                                             {result.summary}
                                         </p>
                                     </div>
+
+                                    {result.sections && result.sections.length > 0 && (
+                                        <div className="space-y-5">
+                                            {result.sections.map((section, si) => (
+                                                <div key={si}>
+                                                    <h4 className="font-bold text-slate-800 text-sm uppercase tracking-wider mb-2">{section.label}</h4>
+                                                    <ul className="list-disc pl-5 space-y-1.5">
+                                                        {section.items.map((item, ii) => (
+                                                            <li key={ii} className="text-slate-700 leading-relaxed text-sm">{item}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
 
                                     <div>
                                         <h4 className="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4 mt-6">Action Items</h4>
