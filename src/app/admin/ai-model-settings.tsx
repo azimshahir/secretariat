@@ -8,7 +8,6 @@ import {
   AI_TASK_LABELS,
   AI_TASK_DESCRIPTIONS,
   AI_MODEL_OPTIONS,
-  getAiModelLabel,
   inferProviderFromModel,
   type AdminAiTask,
   type EffectiveAiConfig,

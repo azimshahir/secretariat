@@ -1,11 +1,13 @@
 'use client'
 
+import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useNavigationTransition } from '@/components/navigation-transition-provider'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { LayoutDashboard, Users, BarChart3, Building2, Bot, ScrollText, Inbox } from 'lucide-react'
 import type { AdminAiTask, EffectiveAiConfig } from '@/lib/ai/catalog'
 import type { TranscriptIntelligencePreset } from '@/lib/ai/transcript-intelligence'
+import { AI_ADMIN_TASKS } from '@/lib/ai/catalog'
 import type { PlanTier, UserSubscriptionUsageMonthly } from '@/lib/supabase/types'
 import { TabOverview } from './tab-overview'
 import { TabUsers } from './tab-users'
@@ -86,10 +88,30 @@ const TABS = [
   { value: 'audit-logs', label: 'Audit Logs', icon: ScrollText },
 ]
 
+const PRESET_SUGGESTED_MODEL: Record<TranscriptIntelligencePreset, string> = {
+  testing: 'claude-sonnet-4-20250514',
+  balanced: 'claude-sonnet-4-20250514',
+  high_accuracy: 'claude-opus-4-6',
+}
+
 export function AdminTabs(props: Props) {
   const { push } = useNavigationTransition()
   const searchParams = useSearchParams()
   const activeTab = searchParams.get('tab') ?? 'overview'
+  const [suggestedAiModel, setSuggestedAiModel] = useState<string | null>(null)
+
+  function handleTranscriptPresetChange(preset: TranscriptIntelligencePreset) {
+    setSuggestedAiModel(PRESET_SUGGESTED_MODEL[preset])
+  }
+
+  const suggestedConfigs = suggestedAiModel
+    ? (Object.fromEntries(
+        AI_ADMIN_TASKS.map(task => [
+          task,
+          { provider: 'anthropic' as const, model: suggestedAiModel },
+        ]),
+      ) as Record<AdminAiTask, EffectiveAiConfig>)
+    : null
 
   return (
     <Tabs value={activeTab} onValueChange={v => { push(`/admin?tab=${v}`, { scroll: false }) }}>
@@ -142,8 +164,14 @@ export function AdminTabs(props: Props) {
         <TabCustomRequests requests={props.customRequests} />
       </TabsContent>
       <TabsContent value="ai-model" className="mt-6">
-        <TranscriptIntelligenceSettings initialPreset={props.transcriptPreset} />
-        <AiModelSettings initialConfigs={props.aiConfigs} />
+        <TranscriptIntelligenceSettings
+          initialPreset={props.transcriptPreset}
+          onPresetChange={handleTranscriptPresetChange}
+        />
+        <AiModelSettings
+          initialConfigs={props.aiConfigs}
+          suggestedConfigs={suggestedConfigs}
+        />
       </TabsContent>
       <TabsContent value="audit-logs" className="mt-6">
         <TabAuditLogs logs={props.auditLogs} />

@@ -1,6 +1,6 @@
 /** V2 Minute Generation — 1 prompt per agenda via generateObject(). */
 import { generateObject } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
+import { resolveLanguageModelForOrganization } from '@/lib/ai/model-config'
 import { getDefaultPersona } from '@/lib/ai/personas'
 import {
   buildMinuteSystemPrompt, buildMinuteUserPrompt,
@@ -124,8 +124,9 @@ export async function generateMinuteForAgendaV2(params: {
   }
 
   const isTemplate = !!templateSkeleton
+  const model = await resolveLanguageModelForOrganization(ctx.organizationId, 'generate_mom')
   const { object } = await generateObject({
-    model: anthropic('claude-sonnet-4-20250514'),
+    model,
     schema: isTemplate ? templateFillMinuteSchema : freeFormMinuteSchema,
     system: buildMinuteSystemPrompt(promptCtx),
     prompt: buildMinuteUserPrompt(promptInput),

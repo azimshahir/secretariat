@@ -2,6 +2,7 @@ import 'server-only'
 
 import { anthropic } from '@ai-sdk/anthropic'
 import { openai } from '@ai-sdk/openai'
+import { google } from '@ai-sdk/google'
 import {
   AI_PROVIDER_MODELS,
   AI_TASKS,
@@ -11,7 +12,7 @@ import {
   type EffectiveAiConfig,
   toProvider,
 } from '@/lib/ai/catalog'
-import { getAllowedAiModelIdsForPlan, normalizePlanTier } from '@/lib/subscription/catalog'
+import { normalizePlanTier } from '@/lib/subscription/catalog'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { PlanTier } from '@/lib/supabase/types'
 
@@ -50,6 +51,7 @@ function isMissingAiTaskSettingsColumn(error: { code?: string | null; message?: 
 const ENV_DEFAULTS: Record<AiProvider, string> = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-5',
+  google: 'gemini-2.5-pro',
 }
 
 const AI_TASK_FIELD_MAP: Record<AiTask, {
@@ -90,6 +92,15 @@ function assertProviderKey(provider: AiProvider) {
   if (provider === 'openai' && !(process.env.OPENAI_API_KEY ?? '').trim()) {
     throw new Error('OPENAI_API_KEY is missing for OpenAI model selection.')
   }
+  if (provider === 'google' && !(process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? '').trim()) {
+    throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is missing for Google Gemini model selection.')
+  }
+}
+
+function instantiateLanguageModel(config: EffectiveAiConfig) {
+  if (config.provider === 'anthropic') return anthropic(config.model)
+  if (config.provider === 'google') return google(config.model)
+  return openai(config.model)
 }
 
 function toTaskConfig(
@@ -214,21 +225,10 @@ function toTaskConfigForPlanRow(
   row: OrganizationAiPlanSettingsRow | null | undefined,
   task: AiTask,
   fallback: EffectiveAiConfig,
-  planTier: PlanTier,
 ): EffectiveAiConfig {
-  const baseConfig = row ? toTaskConfig(row as unknown as OrganizationAiSettingsRow, task, fallback) : fallback
-  const allowedModelIds = getAllowedAiModelIdsForPlan(planTier)
-
-  if (allowedModelIds.includes(baseConfig.model)) {
-    return baseConfig
-  }
-
-  const firstAllowedModel = allowedModelIds[0] ?? fallback.model
-  const provider = inferProviderFromModel(firstAllowedModel) ?? fallback.provider
-  return {
-    provider,
-    model: firstAllowedModel,
-  }
+  // Admin's AI Model Configuration is the single source of truth.
+  // Plan-tier allowlist gating intentionally no longer overrides the admin choice.
+  return row ? toTaskConfig(row as unknown as OrganizationAiSettingsRow, task, fallback) : fallback
 }
 
 export async function getEffectiveAiConfigsForPlan(
@@ -245,7 +245,6 @@ export async function getEffectiveAiConfigsForPlan(
       row,
       task,
       fallbackConfigs[task],
-      normalizedPlanTier,
     )
     return configs
   }, {} as Record<AiTask, EffectiveAiConfig>)
@@ -277,9 +276,7 @@ export async function resolveLanguageModelForOrganization(
 ) {
   const config = await getEffectiveAiConfigForOrganization(organizationId, task)
   assertProviderKey(config.provider)
-
-  if (config.provider === 'anthropic') return anthropic(config.model)
-  return openai(config.model)
+  return instantiateLanguageModel(config)
 }
 
 export async function resolveLanguageModelForUserPlan(
@@ -289,17 +286,14 @@ export async function resolveLanguageModelForUserPlan(
 ) {
   const config = await getEffectiveAiConfigForUserPlan(organizationId, planTier, task)
   assertProviderKey(config.provider)
-
-  if (config.provider === 'anthropic') return anthropic(config.model)
-  return openai(config.model)
+  return instantiateLanguageModel(config)
 }
 
 export function resolveModelById(modelId: string) {
   const provider = inferProviderFromModel(modelId)
   if (!provider) throw new Error(`Unknown model: ${modelId}`)
   assertProviderKey(provider)
-  if (provider === 'anthropic') return anthropic(modelId)
-  return openai(modelId)
+  return instantiateLanguageModel({ provider, model: modelId })
 }
 
 export {

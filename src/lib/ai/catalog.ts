@@ -1,4 +1,4 @@
-export type AiProvider = 'anthropic' | 'openai'
+export type AiProvider = 'anthropic' | 'openai' | 'google'
 
 export type AiTask =
   | 'generate_mom'
@@ -29,11 +29,16 @@ export const AI_PROVIDER_MODELS: Record<AiProvider, string[]> = {
     'gpt-5-nano',
     'gpt-4.1',
   ],
+  google: [
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+  ],
 }
 
 export const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  google: 'Google Gemini',
 }
 
 export const AI_MODEL_LABELS: Record<string, string> = {
@@ -44,6 +49,8 @@ export const AI_MODEL_LABELS: Record<string, string> = {
   'gpt-5-mini': 'GPT-5 Mini',
   'gpt-5-nano': 'GPT-5 Nano',
   'gpt-4.1': 'GPT-4.1',
+  'gemini-2.5-pro': 'Gemini 2.5 Pro',
+  'gemini-2.5-flash': 'Gemini 2.5 Flash',
 }
 
 export const AI_TASKS: AiTask[] = [
@@ -77,14 +84,12 @@ export const AI_TASK_DESCRIPTIONS: Record<AiTask, string> = {
 }
 
 export function isAiProvider(value: string): value is AiProvider {
-  return value === 'anthropic' || value === 'openai'
+  return value === 'anthropic' || value === 'openai' || value === 'google'
 }
 
 export function toProvider(value: string | null | undefined): AiProvider | null {
   if (!value) return null
   const normalized = value.trim().toLowerCase()
-  // Migrate legacy 'google' references to 'anthropic'
-  if (normalized === 'google') return 'anthropic'
   return isAiProvider(normalized) ? normalized : null
 }
 
@@ -93,6 +98,7 @@ export function inferProviderFromModel(model: string): AiProvider | null {
   if (!value) return null
   if (value.startsWith('claude')) return 'anthropic'
   if (value.startsWith('gpt')) return 'openai'
+  if (value.startsWith('gemini')) return 'google'
   return null
 }
 
