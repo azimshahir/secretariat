@@ -12,25 +12,12 @@ import {
   type EffectiveAiConfig,
   toProvider,
 } from '@/lib/ai/catalog'
-import { normalizePlanTier } from '@/lib/subscription/catalog'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { PlanTier } from '@/lib/supabase/types'
 
 interface OrganizationAiSettingsRow {
   provider: string | null
   model: string | null
-  generate_mom_provider: string | null
-  generate_mom_model: string | null
-  go_deeper_ask_provider: string | null
-  go_deeper_ask_model: string | null
-  go_deeper_agent_provider: string | null
-  go_deeper_agent_model: string | null
-  generate_itineraries_provider: string | null
-  generate_itineraries_model: string | null
-}
-
-interface OrganizationAiPlanSettingsRow {
-  plan_tier: string | null
   generate_mom_provider: string | null
   generate_mom_model: string | null
   go_deeper_ask_provider: string | null
@@ -176,31 +163,6 @@ async function getOrganizationAiSettingsRow(
   return data as OrganizationAiSettingsRow
 }
 
-async function getOrganizationAiPlanSettingsRows(
-  organizationId: string | null | undefined,
-): Promise<OrganizationAiPlanSettingsRow[]> {
-  if (!organizationId) return []
-
-  const admin = createAdminClient()
-  const { data, error } = await admin
-    .from('organization_ai_plan_settings')
-    .select(`
-      plan_tier,
-      generate_mom_provider,
-      generate_mom_model,
-      go_deeper_ask_provider,
-      go_deeper_ask_model,
-      go_deeper_agent_provider,
-      go_deeper_agent_model,
-      generate_itineraries_provider,
-      generate_itineraries_model
-    `)
-    .eq('organization_id', organizationId)
-
-  if (error || !data) return []
-  return data as OrganizationAiPlanSettingsRow[]
-}
-
 export async function getEffectiveAiConfigsForOrganization(
   organizationId: string | null | undefined,
 ): Promise<Record<AiTask, EffectiveAiConfig>> {
@@ -221,33 +183,14 @@ export async function getEffectiveAiConfigForOrganization(
   return configs[task]
 }
 
-function toTaskConfigForPlanRow(
-  row: OrganizationAiPlanSettingsRow | null | undefined,
-  task: AiTask,
-  fallback: EffectiveAiConfig,
-): EffectiveAiConfig {
-  // Admin's AI Model Configuration is the single source of truth.
-  // Plan-tier allowlist gating intentionally no longer overrides the admin choice.
-  return row ? toTaskConfig(row as unknown as OrganizationAiSettingsRow, task, fallback) : fallback
-}
-
 export async function getEffectiveAiConfigsForPlan(
   organizationId: string | null | undefined,
-  planTier: string | null | undefined,
+  _planTier: string | null | undefined,
 ): Promise<Record<AiTask, EffectiveAiConfig>> {
-  const normalizedPlanTier = normalizePlanTier(planTier)
-  const fallbackConfigs = await getEffectiveAiConfigsForOrganization(organizationId)
-  const rows = await getOrganizationAiPlanSettingsRows(organizationId)
-  const row = rows.find(candidate => normalizePlanTier(candidate.plan_tier) === normalizedPlanTier) ?? null
-
-  return AI_TASKS.reduce((configs, task) => {
-    configs[task] = toTaskConfigForPlanRow(
-      row,
-      task,
-      fallbackConfigs[task],
-    )
-    return configs
-  }, {} as Record<AiTask, EffectiveAiConfig>)
+  // Admin's org-level AI Model Configuration is the single source of truth.
+  // Per-plan settings (organization_ai_plan_settings) are intentionally no longer
+  // consulted so the admin selection always wins for every plan tier.
+  return getEffectiveAiConfigsForOrganization(organizationId)
 }
 
 export async function getEffectiveAiConfigForUserPlan(
