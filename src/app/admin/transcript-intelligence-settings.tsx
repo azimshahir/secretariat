@@ -13,9 +13,10 @@ import { Button } from '@/components/ui/button'
 
 interface Props {
   initialPreset: TranscriptIntelligencePreset
+  onPresetChange?: (preset: TranscriptIntelligencePreset) => void
 }
 
-export function TranscriptIntelligenceSettings({ initialPreset }: Props) {
+export function TranscriptIntelligenceSettings({ initialPreset, onPresetChange }: Props) {
   const [savedPreset, setSavedPreset] = useState(initialPreset)
   const [preset, setPreset] = useState(initialPreset)
   const [pending, startTransition] = useTransition()
@@ -68,7 +69,7 @@ export function TranscriptIntelligenceSettings({ initialPreset }: Props) {
             <button
               key={option}
               type="button"
-              onClick={() => setPreset(option)}
+              onClick={() => { setPreset(option); onPresetChange?.(option) }}
               className={[
                 'rounded-xl border p-4 text-left transition',
                 selected
