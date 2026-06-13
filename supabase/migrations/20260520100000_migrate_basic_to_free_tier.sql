@@ -19,13 +19,5 @@ begin
   end if;
 end $$;
 
--- 3. Update usage tracking if exists
-do $$
-begin
-  if exists (select 1 from information_schema.tables where table_name = 'user_subscription_usage_monthly') then
-    execute 'update user_subscription_usage_monthly set plan_tier = ''free'' where plan_tier = ''basic''';
-  end if;
-end $$;
-
 -- Note: CHECK constraints still allow 'basic' for safety.
 -- Can be tightened in a future migration after confirming no basic references remain.
