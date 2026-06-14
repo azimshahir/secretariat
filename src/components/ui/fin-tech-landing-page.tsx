@@ -345,7 +345,10 @@ export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.supportLabel}</li>
                                 </ul>
 
-                                <Link href="/login" className="w-full">
+                                <Link
+                                    href={tier === "free" ? "/login" : `/api/billing/checkout?tier=${tier}`}
+                                    className="w-full"
+                                >
                                     <button className={`w-full rounded-full py-3 font-medium transition-colors ${isFeatured
                                         ? "bg-white text-emerald-900 hover:bg-slate-50"
                                         : "bg-slate-100 text-slate-900 hover:bg-slate-200"
