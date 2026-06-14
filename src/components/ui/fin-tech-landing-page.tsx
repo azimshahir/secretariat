@@ -111,7 +111,7 @@ export function Navbar() {
 
     return (
         <nav className="mx-auto flex w-full max-w-[1180px] items-center justify-between px-4 py-3 md:px-0">
-            <Link href="/demo" className="flex items-center">
+            <Link href="/home" className="flex items-center">
                 <Image src="/logo.png" alt="Secretariat Logo" width={477} height={316} className="h-20 w-auto" priority />
             </Link>
 
@@ -393,7 +393,7 @@ export function Footer() {
         <footer className="border-t border-slate-200/60 bg-white pt-16 pb-8">
             <div className="max-w-[1180px] mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
                 <div className="md:col-span-2">
-                    <Link href="/demo" className="flex items-center mb-4">
+                    <Link href="/home" className="flex items-center mb-4">
                         <Image src="/logo.png" alt="Secretariat Logo" width={400} height={100} className="h-24 w-auto" />
                     </Link>
                     <p className="text-slate-500 text-sm max-w-sm mb-6 leading-relaxed">
