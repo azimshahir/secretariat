@@ -4,6 +4,8 @@ import { Suspense } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   CalendarRange,
+  Coins,
+  CreditCard,
   LogOut,
   PanelLeft,
   Pin,
@@ -11,6 +13,7 @@ import {
   Settings,
   Shield,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react'
 
 import { createClient } from '@/lib/supabase/client'
@@ -27,6 +30,7 @@ import {
 import { Input } from '@/components/ui/input'
 import type { DashboardScope } from '@/lib/secretariat-access'
 import type { Committee, Profile } from '@/lib/supabase/types'
+import { SUBSCRIPTION_PLANS } from '@/lib/subscription/catalog'
 import { cn } from '@/lib/utils'
 
 interface NavbarProps {
@@ -61,6 +65,8 @@ export function Navbar({
     month: 'short',
     year: 'numeric',
   })
+  const planTier = profile.plan
+  const planLabel = SUBSCRIPTION_PLANS[planTier]?.label ?? 'Free'
 
   async function handleSignOut() {
     await supabase.auth.signOut()
@@ -122,6 +128,17 @@ export function Navbar({
           className="h-8.5 rounded-[12px] px-3.5 text-[0.84rem]"
         />
 
+        <button
+          type="button"
+          onClick={() => { push('/pricing') }}
+          title="Credit balance — top up or upgrade"
+          className="hidden items-center gap-1.5 rounded-[12px] border border-white/70 bg-white/92 px-3 py-1.5 text-[0.84rem] font-medium text-foreground shadow-[0_18px_40px_-34px_rgba(15,23,42,0.42)] transition-colors hover:bg-white sm:flex"
+        >
+          <Coins className="h-3.5 w-3.5 text-primary" />
+          <span>{profile.credit_balance}</span>
+          <span className="hidden text-muted-foreground xl:inline">credits</span>
+        </button>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -135,7 +152,38 @@ export function Navbar({
               <span className="hidden sm:inline">{profile.full_name}</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="w-60">
+            <div className="px-2 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-sm font-medium text-foreground">{profile.full_name}</p>
+                <span
+                  className={cn(
+                    'rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide',
+                    planTier === 'free'
+                      ? 'bg-muted text-muted-foreground'
+                      : 'bg-primary/12 text-primary'
+                  )}
+                >
+                  {planLabel}
+                </span>
+              </div>
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                <Coins className="h-3 w-3" />
+                {profile.credit_balance} credits
+              </p>
+            </div>
+            <DropdownMenuSeparator />
+            {planTier === 'free' ? (
+              <DropdownMenuItem onSelect={() => { push('/pricing') }}>
+                <Sparkles className="mr-2 h-4 w-4" />Upgrade plan
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem asChild>
+                <a href="/api/billing/portal">
+                  <CreditCard className="mr-2 h-4 w-4" />Manage subscription
+                </a>
+              </DropdownMenuItem>
+            )}
             {profile.role === 'admin' && (
               <DropdownMenuItem onSelect={() => { push('/admin') }}>
                 <ShieldCheck className="mr-2 h-4 w-4" />Admin

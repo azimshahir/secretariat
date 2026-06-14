@@ -5,6 +5,7 @@ import { LogOut } from 'lucide-react'
 
 import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/lib/supabase/types'
+import { SUBSCRIPTION_PLANS } from '@/lib/subscription/catalog'
 import { cn } from '@/lib/utils'
 
 interface SidebarUserCardProps {
@@ -43,9 +44,21 @@ export function SidebarUserCard({ profile, collapsed }: SidebarUserCardProps) {
             <p className="truncate text-[0.82rem] font-medium text-foreground">
               {profile.full_name}
             </p>
-            <p className="truncate text-[0.62rem] uppercase tracking-[0.18em] text-muted-foreground">
-              {profile.role}
-            </p>
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-[0.62rem] uppercase tracking-[0.18em] text-muted-foreground">
+                {profile.role}
+              </span>
+              <span
+                className={cn(
+                  'shrink-0 rounded-full px-1.5 py-0.5 text-[0.55rem] font-semibold uppercase tracking-wide',
+                  profile.plan === 'free'
+                    ? 'bg-muted text-muted-foreground'
+                    : 'bg-primary/12 text-primary'
+                )}
+              >
+                {SUBSCRIPTION_PLANS[profile.plan]?.label ?? 'Free'}
+              </span>
+            </div>
           </div>
         ) : null}
         <button
