@@ -70,3 +70,35 @@ export async function updateOrganizationAiModels(input: {
 
   revalidatePath('/admin')
 }
+
+export async function updateBillingSettings(input: {
+  creditsPerTranscriptionHour: number
+  creditPriceRm: number
+}) {
+  const { supabase, userId, organizationId } = await requireAdmin()
+
+  const creditsPerTranscriptionHour = Math.max(1, Math.trunc(input.creditsPerTranscriptionHour))
+  const creditPriceRm = Math.max(0.01, Math.round(input.creditPriceRm * 100) / 100)
+
+  const { error } = await supabase
+    .from('organization_billing_settings')
+    .upsert(
+      {
+        organization_id: organizationId,
+        credits_per_transcription_hour: creditsPerTranscriptionHour,
+        credit_price_rm: creditPriceRm,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'organization_id' },
+    )
+  if (error) throw new Error(error.message)
+
+  await supabase.from('audit_logs').insert({
+    organization_id: organizationId,
+    user_id: userId,
+    action: 'organization_billing_settings_updated',
+    details: { creditsPerTranscriptionHour, creditPriceRm },
+  })
+
+  revalidatePath('/admin')
+}

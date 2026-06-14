@@ -3,11 +3,15 @@ import 'server-only'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   GO_DEEPER_AGENT_CREDIT_COST,
-  TRANSCRIPTION_SECONDS_PER_CREDIT,
   getAllowedAiModelOptionsForPlan,
   getSubscriptionPlan,
   normalizePlanTier,
 } from '@/lib/subscription/catalog'
+import {
+  getBillingSettings,
+  transcriptionCreditCost,
+  DEFAULT_BILLING_SETTINGS,
+} from '@/lib/subscription/billing-settings'
 import {
   getSubscriptionSchemaCompatibility,
   isMissingProfilesCreditBalanceColumn,
@@ -45,6 +49,7 @@ export interface UserEntitlementSnapshot {
   compatibility: SubscriptionSchemaCompatibility
   usageMonth: string
   usage: UserSubscriptionUsageMonthly
+  creditsPerTranscriptionHour: number
   transcriptReviewJobsRemaining: number
   transcriptionSecondsRemaining: number
   extractMinuteRunsRemaining: number | null
@@ -262,12 +267,14 @@ function buildSnapshot(
   profile: LoadedProfile,
   usage: UserSubscriptionUsageMonthly,
   compatibility: SubscriptionSchemaCompatibility,
+  creditsPerTranscriptionHour: number = DEFAULT_BILLING_SETTINGS.creditsPerTranscriptionHour,
 ) {
   const planTier = normalizePlanTier(profile.plan)
   const plan = getSubscriptionPlan(planTier)
   const includedCreditsRemaining = Math.max(0, plan.includedCredits - toSafeInt(usage.credits_consumed))
   const walletCreditsRemaining = toSafeInt(profile.credit_balance)
   const totalCreditsRemaining = includedCreditsRemaining + walletCreditsRemaining
+  const rate = Math.max(1, creditsPerTranscriptionHour)
 
   return {
     userId: profile.id,
@@ -278,8 +285,11 @@ function buildSnapshot(
     compatibility,
     usageMonth: usage.usage_month,
     usage,
+    creditsPerTranscriptionHour: rate,
     transcriptReviewJobsRemaining: Math.max(0, plan.transcriptReviewJobs - toSafeInt(usage.transcript_review_jobs)),
-    transcriptionSecondsRemaining: Math.max(0, plan.transcriptionHours * 3600 - toSafeInt(usage.transcription_seconds_used)),
+    // Transcription is now paid from the unified credit balance; show how many seconds
+    // the remaining credits can buy at the current rate.
+    transcriptionSecondsRemaining: Math.floor((totalCreditsRemaining / rate) * 3600),
     extractMinuteRunsRemaining: plan.extractMinuteMonthlyLimit == null
       ? null
       : Math.max(0, plan.extractMinuteMonthlyLimit - toSafeInt(usage.extract_minute_runs)),
@@ -367,7 +377,14 @@ export async function getUserEntitlementSnapshot(params: {
     }
   }
 
-  return buildSnapshot(profile, usage, compatibility)
+  let creditsPerTranscriptionHour = DEFAULT_BILLING_SETTINGS.creditsPerTranscriptionHour
+  try {
+    creditsPerTranscriptionHour = (await getBillingSettings(profile.organization_id, admin)).creditsPerTranscriptionHour
+  } catch {
+    // fall back to default rate
+  }
+
+  return buildSnapshot(profile, usage, compatibility, creditsPerTranscriptionHour)
 }
 
 export function getAskModelOptionsForUserPlan(planTier: string | null | undefined) {
@@ -421,31 +438,10 @@ export async function assertTranscriptUploadAllowed(params: {
 
   const durationSec = toSafeInt(params.durationSec)
   if ((params.mediaKind === 'audio' || params.mediaKind === 'video') && durationSec > 0) {
-    const maxUploadSeconds = plan.transcriptionHours * 3600
-    if (maxUploadSeconds <= 0) {
+    const creditCost = transcriptionCreditCost(durationSec, snapshot.creditsPerTranscriptionHour)
+    if (creditCost > snapshot.totalCreditsRemaining) {
       throw new SubscriptionLimitError(
-        'Media upload is not available on your current plan.',
-        'media_upload_not_allowed',
-      )
-    }
-    if (durationSec > maxUploadSeconds) {
-      throw new SubscriptionLimitError(
-        `This recording is longer than the ${plan.transcriptionHours} hour limit allowed for a single upload on your plan.`,
-        'media_duration_exceeded',
-      )
-    }
-
-    const currentSeconds = toSafeInt(snapshot.usage.transcription_seconds_used)
-    const includedSeconds = plan.transcriptionHours * 3600
-    const overageCredits = Math.max(
-      0,
-      Math.ceil(Math.max(0, currentSeconds + durationSec - includedSeconds) / TRANSCRIPTION_SECONDS_PER_CREDIT)
-        - Math.ceil(Math.max(0, currentSeconds - includedSeconds) / TRANSCRIPTION_SECONDS_PER_CREDIT),
-    )
-
-    if (overageCredits > snapshot.totalCreditsRemaining) {
-      throw new SubscriptionLimitError(
-        'This upload needs more transcription credits than you have left. Ask your admin to top up credits or change your plan.',
+        'This recording needs more credits than you have left. Top up credits or change your plan.',
         'transcription_credits_exhausted',
       )
     }
@@ -476,19 +472,18 @@ export async function recordTranscriptUploadUsage(params: {
   const currentSeconds = toSafeInt(snapshot.usage.transcription_seconds_used)
   const nextSeconds = currentSeconds + durationSec
   const currentCreditsConsumed = toSafeInt(snapshot.usage.credits_consumed)
-  const overageCreditsBefore = Math.ceil(Math.max(0, currentSeconds - plan.transcriptionHours * 3600) / TRANSCRIPTION_SECONDS_PER_CREDIT)
-  const overageCreditsAfter = Math.ceil(Math.max(0, nextSeconds - plan.transcriptionHours * 3600) / TRANSCRIPTION_SECONDS_PER_CREDIT)
-  const overageCredits = Math.max(0, overageCreditsAfter - overageCreditsBefore)
-  const totalCreditsRemaining = snapshot.totalCreditsRemaining
 
-  if (overageCredits > totalCreditsRemaining) {
+  // Transcription is paid from the unified credit balance at the admin-set rate.
+  const creditCost = transcriptionCreditCost(durationSec, snapshot.creditsPerTranscriptionHour)
+
+  if (creditCost > snapshot.totalCreditsRemaining) {
     throw new SubscriptionLimitError(
-      'This upload needs more transcription credits than you have left. Ask your admin to top up credits or change your plan.',
+      'This recording needs more credits than you have left. Top up credits or change your plan.',
       'transcription_credits_exhausted',
     )
   }
 
-  const nextCreditsConsumed = currentCreditsConsumed + overageCredits
+  const nextCreditsConsumed = currentCreditsConsumed + creditCost
   const walletCreditsBefore = Math.max(0, currentCreditsConsumed - plan.includedCredits)
   const walletCreditsAfter = Math.max(0, nextCreditsConsumed - plan.includedCredits)
   const walletCreditsDelta = walletCreditsAfter - walletCreditsBefore
@@ -520,11 +515,12 @@ export async function recordTranscriptUploadUsage(params: {
     entry_kind: 'transcription_overage',
     credits_delta: walletCreditsDelta > 0 ? -walletCreditsDelta : 0,
     applies_to_wallet: walletCreditsDelta > 0,
-    reason: overageCredits > 0 ? 'Transcription overage consumed credits' : 'Transcript review recorded within included allowance',
+    reason: creditCost > 0 ? 'Transcription consumed credits' : 'Transcript review recorded',
     metadata: {
       durationSec,
-      totalCreditCost: overageCredits,
-      includedCreditsApplied: Math.max(0, overageCredits - walletCreditsDelta),
+      creditsPerHour: snapshot.creditsPerTranscriptionHour,
+      totalCreditCost: creditCost,
+      includedCreditsApplied: Math.max(0, creditCost - walletCreditsDelta),
       walletCreditsApplied: walletCreditsDelta,
     },
     created_by: params.createdBy ?? snapshot.userId,
@@ -535,7 +531,7 @@ export async function recordTranscriptUploadUsage(params: {
     organization_id: snapshot.organizationId,
     plan: snapshot.planTier,
     credit_balance: walletCreditsDelta > 0 ? Math.max(0, snapshot.creditBalance - walletCreditsDelta) : snapshot.creditBalance,
-  }, updatedUsage, snapshot.compatibility)
+  }, updatedUsage, snapshot.compatibility, snapshot.creditsPerTranscriptionHour)
 }
 
 export async function consumeFeatureCredits(params: {
@@ -615,7 +611,7 @@ export async function consumeFeatureCredits(params: {
     organization_id: snapshot.organizationId,
     plan: snapshot.planTier,
     credit_balance: walletCreditsDelta > 0 ? Math.max(0, snapshot.creditBalance - walletCreditsDelta) : snapshot.creditBalance,
-  }, updatedUsage, snapshot.compatibility)
+  }, updatedUsage, snapshot.compatibility, snapshot.creditsPerTranscriptionHour)
 }
 
 export async function consumeGoDeeperAgentCredit(params: {
@@ -701,7 +697,7 @@ export async function recordExtractMinuteUsage(params: {
     organization_id: snapshot.organizationId,
     plan: snapshot.planTier,
     credit_balance: snapshot.creditBalance,
-  }, updatedUsage, snapshot.compatibility)
+  }, updatedUsage, snapshot.compatibility, snapshot.creditsPerTranscriptionHour)
 }
 
 export async function adjustUserCreditWallet(params: {
@@ -790,7 +786,7 @@ export async function recordMeetingCreatedUsage(params: {
     organization_id: snapshot.organizationId,
     plan: snapshot.planTier,
     credit_balance: snapshot.creditBalance,
-  }, updatedUsage, snapshot.compatibility)
+  }, updatedUsage, snapshot.compatibility, snapshot.creditsPerTranscriptionHour)
 }
 
 export async function listCurrentMonthUsageForOrganization(params: {

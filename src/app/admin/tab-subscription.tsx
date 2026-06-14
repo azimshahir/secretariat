@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Coins, DollarSign, TrendingUp, Users } from 'lucide-react'
 import { SUBSCRIPTION_PLAN_ORDER, getSubscriptionPlan } from '@/lib/subscription/catalog'
 import type { PlanTier } from '@/lib/supabase/types'
+import { BillingSettings } from './billing-settings'
 
 interface MonthlyMeetings { month: string; count: number }
 
@@ -16,6 +17,8 @@ interface Props {
   monthlyMeetings: MonthlyMeetings[]
   meetingsThisMonth: number
   totalMeetings: number
+  billingCreditsPerHour: number
+  billingCreditPriceRm: number
 }
 
 const PLAN_COLORS = {
@@ -33,6 +36,8 @@ export function TabSubscription({
   monthlyMeetings,
   meetingsThisMonth,
   totalMeetings,
+  billingCreditsPerHour,
+  billingCreditPriceRm,
 }: Props) {
   const mrr = SUBSCRIPTION_PLAN_ORDER.reduce((sum, planTier) => (
     sum + (planBreakdown[planTier] * getSubscriptionPlan(planTier).priceRmMonthly)
@@ -50,6 +55,10 @@ export function TabSubscription({
 
   return (
     <div className="space-y-6">
+      <BillingSettings
+        initialCreditsPerHour={billingCreditsPerHour}
+        initialCreditPriceRm={billingCreditPriceRm}
+      />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map(s => (
           <Card key={s.label}>

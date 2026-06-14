@@ -70,6 +70,8 @@ interface Props {
   // ai model
   aiConfigs: Record<PlanTier, Record<AdminAiTask, EffectiveAiConfig>>
   transcriptPreset: TranscriptIntelligencePreset
+  billingCreditsPerHour: number
+  billingCreditPriceRm: number
   // audit
   auditLogs: AuditLog[]
   // custom requests
@@ -155,6 +157,8 @@ export function AdminTabs(props: Props) {
           monthlyMeetings={props.monthlyMeetings}
           meetingsThisMonth={props.meetingsThisMonth}
           totalMeetings={props.totalMeetings}
+          billingCreditsPerHour={props.billingCreditsPerHour}
+          billingCreditPriceRm={props.billingCreditPriceRm}
         />
       </TabsContent>
       <TabsContent value="committees" className="mt-6">

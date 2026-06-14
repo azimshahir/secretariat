@@ -5,6 +5,7 @@ import { requireAuthedAppContext } from '@/lib/authenticated-app'
 import { getActiveBuildId } from '@/lib/app-build'
 import { getPlanAiConfigMatrixForOrganization } from '@/lib/ai/model-config'
 import { getTranscriptIntelligencePresetForOrganization } from '@/lib/ai/transcript-intelligence-server'
+import { getBillingSettings } from '@/lib/subscription/billing-settings'
 import { INDUSTRY_CATEGORIES } from '@/lib/ai/persona-templates'
 import { listCurrentMonthUsageForOrganization } from '@/lib/subscription/entitlements'
 import { getSubscriptionSchemaCompatibility } from '@/lib/subscription/schema-compat'
@@ -214,6 +215,14 @@ export default async function AdminPage() {
     transcriptPreset = 'balanced'
   }
 
+  let billingSettings: Awaited<ReturnType<typeof getBillingSettings>>
+  try {
+    billingSettings = await getBillingSettings(orgId, admin)
+  } catch (error) {
+    console.error('Failed to load billing settings for admin dashboard', error)
+    billingSettings = await getBillingSettings(null)
+  }
+
   return (
     <AppShell
       profile={profile}
@@ -242,6 +251,8 @@ export default async function AdminPage() {
           categories={[...INDUSTRY_CATEGORIES]}
           aiConfigs={adminAiConfigs}
           transcriptPreset={transcriptPreset}
+          billingCreditsPerHour={billingSettings.creditsPerTranscriptionHour}
+          billingCreditPriceRm={billingSettings.creditPriceRm}
           auditLogs={formattedLogs}
           customRequests={customRequestsFormatted}
           subscriptionSetupPending={subscriptionCompatibility.subscriptionSetupPending}

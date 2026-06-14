@@ -11,7 +11,6 @@ import { InteractiveDemo } from "@/components/ui/interactive-demo";
 import {
     SUBSCRIPTION_PLANS,
     SUBSCRIPTION_DISPLAY_TIERS,
-    SUBSCRIPTION_TOP_UP_PACKS,
 } from "@/lib/subscription/catalog";
 
 /** Shared Components */
@@ -403,6 +402,25 @@ export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
     const isLoggedIn = typeof currentPlan === "string";
     const hasPaidPlan = currentPlan === "pro" || currentPlan === "premium";
 
+    // Credit top-up slider
+    const [creditPriceRm, setCreditPriceRm] = React.useState(0.20);
+    const [creditsPerHour, setCreditsPerHour] = React.useState(4);
+    const [topupCredits, setTopupCredits] = React.useState(100);
+
+    React.useEffect(() => {
+        const supabase = createClient();
+        supabase
+            .from("organization_billing_settings")
+            .select("credit_price_rm, credits_per_transcription_hour")
+            .maybeSingle()
+            .then(({ data }) => {
+                if (data?.credit_price_rm != null) setCreditPriceRm(Number(data.credit_price_rm));
+                if (data?.credits_per_transcription_hour != null) setCreditsPerHour(Math.max(1, Number(data.credits_per_transcription_hour)));
+            });
+    }, []);
+
+    const topupTotalRm = (topupCredits * creditPriceRm).toFixed(2);
+
     return (
         <div className={`py-24 px-4 sm:px-6 lg:px-8 border-t border-slate-200/60 relative overflow-hidden ${bgClass}`}>
             <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-emerald-50/50 rounded-full blur-[100px] pointer-events-none transform translate-x-1/3 -translate-y-1/3 text-emerald-50"></div>
@@ -449,7 +467,7 @@ export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.operatorsLabel}</li>
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.committeeAllowanceLabel}</li>
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.transcriptReviewJobs >= 999 ? 'Unlimited' : plan.transcriptReviewJobs} meetings / month</li>
-                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.transcriptionHours > 0 ? `${plan.transcriptionHours} transcription hrs` : "No audio/video upload"}</li>
+                                    <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.includedCredits} credits / month (≈ {Math.floor(plan.includedCredits / creditsPerHour)} hrs transcription)</li>
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> Claude Sonnet 4 AI engine</li>
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.supportLabel}</li>
                                 </ul>
@@ -467,30 +485,48 @@ export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
                     })}
                 </div>
 
-                <div className="mx-auto mt-14 max-w-5xl rounded-3xl border border-slate-200 bg-white/90 p-8 shadow-sm">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                        <div>
-                            <h3 className="text-2xl font-semibold tracking-tight text-slate-900">Top-up packs</h3>
-                            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                                Need extra usage this month? Add credits or transcription hours manually without changing your plan.
-                            </p>
-                        </div>
-                        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Manual top-up for this phase</p>
+                <div className="mx-auto mt-14 max-w-3xl rounded-3xl border border-slate-200 bg-white/90 p-8 shadow-sm">
+                    <div className="text-center">
+                        <h3 className="text-2xl font-semibold tracking-tight text-slate-900">Top up credits</h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                            One balance for everything — transcription and AI features. Buy as many credits as you need.
+                        </p>
                     </div>
 
-                    <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        {SUBSCRIPTION_TOP_UP_PACKS.map((pack) => (
-                            <div key={pack.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
-                                <p className="text-sm font-semibold text-slate-900">{pack.label}</p>
-                                <p className="mt-1 text-2xl font-semibold tracking-tight text-emerald-800">RM {pack.priceRm}</p>
-                                <p className="mt-3 text-xs leading-5 text-slate-500">{pack.copy}</p>
+                    <div className="mt-8">
+                        <div className="flex items-end justify-between">
+                            <div>
+                                <p className="text-4xl font-semibold tracking-tight text-slate-900">{topupCredits}<span className="ml-2 text-lg font-normal text-slate-500">credits</span></p>
                             </div>
-                        ))}
-                    </div>
+                            <p className="text-3xl font-semibold tracking-tight text-emerald-800">RM {topupTotalRm}</p>
+                        </div>
 
-                    <p className="mt-6 text-xs text-slate-500">
-                        Upgrades and top-ups are handled manually by admin for now. Payment gateway can be added in a later phase.
-                    </p>
+                        <input
+                            type="range"
+                            min={10}
+                            max={2000}
+                            step={10}
+                            value={topupCredits}
+                            onChange={(e) => setTopupCredits(Number(e.target.value))}
+                            className="mt-5 w-full accent-emerald-700"
+                        />
+                        <div className="mt-1 flex justify-between text-xs text-slate-400">
+                            <span>10</span>
+                            <span>2000</span>
+                        </div>
+
+                        <Link
+                            href={isLoggedIn ? `/api/billing/topup?credits=${topupCredits}` : "/login?next=/pricing"}
+                            className="mt-6 block"
+                        >
+                            <SoftButton className="w-full py-3.5 text-base">
+                                Buy {topupCredits} credits — RM {topupTotalRm}
+                            </SoftButton>
+                        </Link>
+                        <p className="mt-3 text-center text-xs text-slate-500">
+                            RM {creditPriceRm.toFixed(2)} per credit · charged once, credits never expire.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>

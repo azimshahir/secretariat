@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type Stripe from 'stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getStripe, TIER_BY_PRICE, type BillingTier } from '@/lib/billing/stripe'
+import { adjustUserCreditWallet } from '@/lib/subscription/entitlements'
 
 export const runtime = 'nodejs'
 
@@ -45,6 +46,32 @@ export async function POST(req: Request) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
+
+        // One-time credit top-up
+        if (session.mode === 'payment' && session.metadata?.type === 'credit_topup') {
+          const userId = session.metadata.userId
+          const credits = Math.trunc(Number(session.metadata.credits ?? 0))
+          if (userId && credits > 0) {
+            const admin = createAdminClient()
+            const { data: profile } = await admin
+              .from('profiles')
+              .select('organization_id')
+              .eq('id', userId)
+              .single()
+            if (profile?.organization_id) {
+              await adjustUserCreditWallet({
+                targetUserId: userId,
+                organizationId: profile.organization_id,
+                deltaCredits: credits,
+                reason: `Self-service credit top-up (${credits} credits)`,
+                createdBy: userId,
+                adminSupabase: admin,
+              })
+            }
+          }
+          break
+        }
+
         if (session.mode !== 'subscription' || !session.customer || !session.subscription) break
         const sub = await stripe.subscriptions.retrieve(session.subscription as string)
         const tier = tierFromSubscription(sub)
