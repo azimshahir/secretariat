@@ -173,9 +173,8 @@ export async function POST(req: Request) {
       }, { status: 500 })
     }
     console.error('[api/demo/generate] failed', error)
-    const detail = error instanceof Error ? error.message : String(error)
     return NextResponse.json(
-      { error: 'InternalError', message: `Demo error: ${detail}` },
+      { error: 'InternalError', message: 'Failed to generate minutes. Please try again.' },
       { status: 500 },
     )
   }
