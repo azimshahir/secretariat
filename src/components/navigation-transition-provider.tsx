@@ -1,7 +1,6 @@
 "use client"
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
-import Image from "next/image"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   Suspense,
@@ -388,28 +387,6 @@ function NavigationTransitionProviderShell({
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 className="flex flex-col items-center gap-6"
               >
-                <motion.div
-                  animate={
-                    reduceMotion
-                      ? undefined
-                      : { scale: [1, 1.05, 1], opacity: [0.85, 1, 0.85] }
-                  }
-                  transition={
-                    reduceMotion
-                      ? undefined
-                      : { duration: 1.6, ease: "easeInOut", repeat: Infinity }
-                  }
-                >
-                  <Image
-                    src="/logo.png"
-                    alt="Secretariat"
-                    width={400}
-                    height={100}
-                    priority
-                    className="h-14 w-auto select-none"
-                  />
-                </motion.div>
-
                 {reduceMotion ? null : (
                   <div className="flex items-center gap-2">
                     {[0, 1, 2].map((index) => (
