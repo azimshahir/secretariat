@@ -56,6 +56,7 @@ export async function GET(req: Request) {
     return NextResponse.redirect(session.url)
   } catch (error) {
     console.error('[api/billing/checkout] failed', error)
-    return NextResponse.redirect(`${site}/pricing?error=checkout`)
+    const detail = error instanceof Error ? error.message : String(error)
+    return NextResponse.redirect(`${site}/pricing?error=${encodeURIComponent(detail)}`)
   }
 }
