@@ -2,10 +2,11 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { ArrowUpRight, CheckCircle2, FileText, Users, Download, PlayCircle, Zap } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, FileText, Users, Download, PlayCircle, Zap, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { InteractiveDemo } from "@/components/ui/interactive-demo";
 import {
     SUBSCRIPTION_PLANS,
@@ -101,6 +102,14 @@ export function Planet() {
 
 export function Navbar() {
     const pathname = usePathname();
+    const [isLoggedIn, setIsLoggedIn] = React.useState<boolean | null>(null);
+
+    React.useEffect(() => {
+        const supabase = createClient();
+        supabase.auth.getUser().then(({ data }) => {
+            setIsLoggedIn(Boolean(data.user));
+        });
+    }, []);
 
     const navLinks = [
         { label: "Features", href: "/features" },
@@ -131,14 +140,24 @@ export function Navbar() {
             </div>
 
             <div className="hidden gap-3 md:flex">
-                <Link href="/login">
-                    <button className="rounded-full px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-200 transition-colors">
-                        Login
-                    </button>
-                </Link>
-                <Link href="/try">
-                    <SoftButton>Try Demo</SoftButton>
-                </Link>
+                {isLoggedIn ? (
+                    <Link href="/">
+                        <SoftButton className="inline-flex items-center gap-2">
+                            <LayoutDashboard className="h-4 w-4" /> Back to Dashboard
+                        </SoftButton>
+                    </Link>
+                ) : isLoggedIn === false ? (
+                    <>
+                        <Link href="/login">
+                            <button className="rounded-full px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-200 transition-colors">
+                                Login
+                            </button>
+                        </Link>
+                        <Link href="/try">
+                            <SoftButton>Try Demo</SoftButton>
+                        </Link>
+                    </>
+                ) : null}
             </div>
         </nav>
     );
