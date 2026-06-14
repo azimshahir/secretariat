@@ -178,10 +178,8 @@ export function Navbar({
                 <Sparkles className="mr-2 h-4 w-4" />Upgrade plan
               </DropdownMenuItem>
             ) : (
-              <DropdownMenuItem asChild>
-                <a href="/api/billing/portal">
-                  <CreditCard className="mr-2 h-4 w-4" />Manage subscription
-                </a>
+              <DropdownMenuItem onSelect={() => { push('/pricing') }}>
+                <CreditCard className="mr-2 h-4 w-4" />Manage subscription
               </DropdownMenuItem>
             )}
             {profile.role === 'admin' && (

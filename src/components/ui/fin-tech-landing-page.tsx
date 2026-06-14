@@ -311,12 +311,97 @@ export function HowItWorksSection({ bgClass = "bg-[#F3F5F7]" }: { bgClass?: stri
     );
 }
 
+function PricingCardAction({
+    tier,
+    planLabel,
+    isFeatured,
+    currentPlan,
+    isLoggedIn,
+    hasPaidPlan,
+}: {
+    tier: string;
+    planLabel: string;
+    isFeatured: boolean;
+    currentPlan: string | null | undefined;
+    isLoggedIn: boolean;
+    hasPaidPlan: boolean;
+}) {
+    const baseBtn = `w-full rounded-full py-3 font-medium transition-colors ${isFeatured
+        ? "bg-white text-emerald-900 hover:bg-slate-50"
+        : "bg-slate-100 text-slate-900 hover:bg-slate-200"
+        }`;
+
+    // Still loading auth/plan — neutral placeholder to avoid flicker
+    if (currentPlan === null) {
+        return <div className={`${baseBtn} opacity-60`} aria-hidden="true">&nbsp;</div>;
+    }
+
+    const isCurrent = isLoggedIn && currentPlan === tier;
+
+    if (isCurrent) {
+        return (
+            <div className="space-y-2">
+                <div className={`flex items-center justify-center gap-2 rounded-full py-3 font-medium ${isFeatured ? "bg-white/15 text-white" : "bg-emerald-50 text-emerald-800"}`}>
+                    <CheckCircle2 className="h-4 w-4" /> Current plan
+                </div>
+                {tier !== "free" ? (
+                    <a href="/api/billing/portal" className="block">
+                        <button className={`w-full rounded-full py-2.5 text-sm font-medium transition-colors ${isFeatured ? "text-emerald-50 hover:bg-white/10" : "text-emerald-700 hover:bg-emerald-50"}`}>
+                            Manage billing
+                        </button>
+                    </a>
+                ) : null}
+            </div>
+        );
+    }
+
+    // Logged-in with an active paid subscription → route plan changes through the portal
+    if (hasPaidPlan) {
+        return (
+            <a href="/api/billing/portal" className="w-full">
+                <button className={baseBtn}>Manage billing</button>
+            </a>
+        );
+    }
+
+    // Free user or guest → subscribe via checkout / sign up
+    const href = tier === "free" ? "/login" : `/api/billing/checkout?tier=${tier}`;
+    const label = tier === "free" ? "Start free" : `Choose ${planLabel}`;
+    return (
+        <Link href={href} className="w-full">
+            <button className={baseBtn}>{label}</button>
+        </Link>
+    );
+}
+
 export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
     const tierDescriptions: Record<string, string> = {
         free: "Try the full workflow free",
         pro: "For working Company Secretaries",
         premium: "Unlimited meetings, priority support",
     };
+
+    // null = still loading, undefined = guest (not logged in)
+    const [currentPlan, setCurrentPlan] = React.useState<string | null | undefined>(null);
+
+    React.useEffect(() => {
+        const supabase = createClient();
+        supabase.auth.getUser().then(async ({ data }) => {
+            if (!data.user) {
+                setCurrentPlan(undefined);
+                return;
+            }
+            const { data: profile } = await supabase
+                .from("profiles")
+                .select("plan")
+                .eq("id", data.user.id)
+                .single();
+            setCurrentPlan(profile?.plan ?? "free");
+        });
+    }, []);
+
+    const isLoggedIn = typeof currentPlan === "string";
+    const hasPaidPlan = currentPlan === "pro" || currentPlan === "premium";
 
     return (
         <div className={`py-24 px-4 sm:px-6 lg:px-8 border-t border-slate-200/60 relative overflow-hidden ${bgClass}`}>
@@ -326,6 +411,11 @@ export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
                 <div className="text-center mb-16">
                     <h2 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 mb-4">Simple, Transparent Pricing</h2>
                     <p className="text-slate-600 max-w-2xl mx-auto text-lg">Choose the plan that fits your workflow, then top up credits or transcription hours only when you need more.</p>
+                    {isLoggedIn ? (
+                        <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-1.5 text-sm font-medium text-emerald-800">
+                            Your plan: {SUBSCRIPTION_PLANS[currentPlan as keyof typeof SUBSCRIPTION_PLANS]?.label ?? "Free"}
+                        </p>
+                    ) : null}
                 </div>
 
                 <div className="grid gap-8 lg:grid-cols-3 max-w-4xl mx-auto">
@@ -364,17 +454,14 @@ export function PricingSection({ bgClass = "bg-white" }: { bgClass?: string }) {
                                     <li className="flex items-center gap-3"><CheckCircle2 className={`h-5 w-5 ${isFeatured ? "text-emerald-300" : "text-emerald-600"}`} /> {plan.supportLabel}</li>
                                 </ul>
 
-                                <Link
-                                    href={tier === "free" ? "/login" : `/api/billing/checkout?tier=${tier}`}
-                                    className="w-full"
-                                >
-                                    <button className={`w-full rounded-full py-3 font-medium transition-colors ${isFeatured
-                                        ? "bg-white text-emerald-900 hover:bg-slate-50"
-                                        : "bg-slate-100 text-slate-900 hover:bg-slate-200"
-                                        }`}>
-                                        {tier === "free" ? "Start free" : `Choose ${plan.label}`}
-                                    </button>
-                                </Link>
+                                <PricingCardAction
+                                    tier={tier}
+                                    planLabel={plan.label}
+                                    isFeatured={isFeatured}
+                                    currentPlan={currentPlan}
+                                    isLoggedIn={isLoggedIn}
+                                    hasPaidPlan={hasPaidPlan}
+                                />
                             </div>
                         );
                     })}
