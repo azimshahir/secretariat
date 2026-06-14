@@ -1,6 +1,7 @@
 "use client"
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
+import Image from "next/image"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   Suspense,
@@ -14,7 +15,6 @@ import {
   type ReactNode,
 } from "react"
 
-import { cn } from "@/lib/utils"
 
 type NavigationPhase = "idle" | "pending" | "settling"
 type NavigateOptions = { scroll?: boolean }
@@ -364,33 +364,75 @@ function NavigationTransitionProviderShell({
           ) : null}
         </AnimatePresence>
 
-        <div
-          aria-busy={showWorkspaceVeil}
-          className={cn(
-            "min-h-screen transition-[filter,opacity,transform] duration-200 ease-out",
-            showWorkspaceVeil &&
-              (reduceMotion
-                ? "opacity-[0.96]"
-                : "scale-[0.997] opacity-[0.9] blur-[1.5px]")
-          )}
-        >
+        <div aria-busy={showWorkspaceVeil} className="min-h-screen">
           {children}
         </div>
 
         <AnimatePresence>
           {showWorkspaceVeil ? (
             <motion.div
-              key="navigation-veil"
+              key="navigation-loader"
               aria-hidden="true"
-              className="fixed inset-0 z-[140] cursor-progress bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.12),transparent_22%),linear-gradient(180deg,rgba(241,245,249,0.28),rgba(255,255,255,0.38))] backdrop-blur-[2px]"
+              className="fixed inset-0 z-[140] flex cursor-progress flex-col items-center justify-center bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.10),transparent_30%),linear-gradient(180deg,rgba(243,245,247,0.97),rgba(255,255,255,0.98))] backdrop-blur-[6px]"
               initial={{ opacity: 0 }}
-              animate={{ opacity: reduceMotion ? 0.8 : 1 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{
-                duration: reduceMotion ? 0.12 : 0.18,
+                duration: reduceMotion ? 0.12 : 0.22,
                 ease: "easeOut",
               }}
-            />
+            >
+              <motion.div
+                initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                className="flex flex-col items-center gap-6"
+              >
+                <motion.div
+                  animate={
+                    reduceMotion
+                      ? undefined
+                      : { scale: [1, 1.05, 1], opacity: [0.85, 1, 0.85] }
+                  }
+                  transition={
+                    reduceMotion
+                      ? undefined
+                      : { duration: 1.6, ease: "easeInOut", repeat: Infinity }
+                  }
+                >
+                  <Image
+                    src="/logo.png"
+                    alt="Secretariat"
+                    width={400}
+                    height={100}
+                    priority
+                    className="h-14 w-auto select-none"
+                  />
+                </motion.div>
+
+                {reduceMotion ? null : (
+                  <div className="flex items-center gap-2">
+                    {[0, 1, 2].map((index) => (
+                      <motion.span
+                        key={index}
+                        className="h-2.5 w-2.5 rounded-full bg-[rgb(13,148,136)]"
+                        animate={{ y: [0, -7, 0], opacity: [0.4, 1, 0.4] }}
+                        transition={{
+                          duration: 0.9,
+                          ease: "easeInOut",
+                          repeat: Infinity,
+                          delay: index * 0.15,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-sm font-medium tracking-wide text-muted-foreground">
+                  Preparing your workspace…
+                </p>
+              </motion.div>
+            </motion.div>
           ) : null}
         </AnimatePresence>
       </div>
