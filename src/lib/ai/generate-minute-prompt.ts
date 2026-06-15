@@ -77,7 +77,9 @@ WRITING STANDARDS:
 - If a figure appears in BOTH the reference paper and transcript, prefer the paper's figure (more reliable source)
 - Attribute discussion points to speakers using role titles (e.g. "Head, CMRD" not personal names) unless rules say otherwise
 - Action items must include: task description, PIC (person in charge), and deadline if mentioned
-- Flag uncertain names, figures, or facts with [[VERIFY: reason]]
+- For any figure, name, date, or decision you are NOT confident about (unclear audio, conflicting
+  sources, or inferred), add an entry to "verifyFlags" with the exact text and a short reason.
+  Do not inline "[[VERIFY]]" markers in the minute body — use the verifyFlags field instead.
 - Do NOT invent information not found in the transcript or reference papers
 - Do NOT include pleasantries, small talk, or procedural chatter
 - Keep the minute concise but complete — capture substance, not filler${glossaryBlock}${formatterBlock}${hardRulesBlock}${factsBlock}${meetingRulesBlock}`.trim()

@@ -71,7 +71,18 @@ export function renderFreeFormToText(output: FreeFormMinuteOutput): string {
       }).join('\n'))
   }
 
+  const verifySection = renderVerifyFlags(output.verifyFlags)
+  if (verifySection) sections.push(verifySection)
+
   return sections.join('\n\n')
+}
+
+function renderVerifyFlags(
+  flags: { text: string; reason: string }[] | undefined,
+): string | null {
+  if (!flags || flags.length === 0) return null
+  return '⚠️ Items to verify:\n' +
+    flags.map((f, i) => `${i + 1}. ${f.text} — ${f.reason}`).join('\n')
 }
 
 export function renderTemplateFillToText(output: TemplateFillMinuteOutput): string {
@@ -90,6 +101,9 @@ export function renderTemplateFillToText(output: TemplateFillMinuteOutput): stri
         return `${i + 1}. ${a.task} — PIC: ${a.pic}${deadline}`
       }).join('\n'))
   }
+
+  const verifySection = renderVerifyFlags(output.verifyFlags)
+  if (verifySection) parts.push(verifySection)
 
   return parts.join('\n\n')
 }
