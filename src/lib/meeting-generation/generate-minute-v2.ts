@@ -128,8 +128,17 @@ export async function generateMinuteForAgendaV2(params: {
   const { object } = await generateObject({
     model,
     schema: isTemplate ? templateFillMinuteSchema : freeFormMinuteSchema,
-    system: buildMinuteSystemPrompt(promptCtx),
-    prompt: buildMinuteUserPrompt(promptInput),
+    // System block (persona/rules/glossary) is identical across all agendas in a meeting.
+    // Mark it cacheable: Anthropic caches the prefix (cache_control); OpenAI caches it
+    // automatically and ignores the provider option. Big saving on the 16-agenda batch.
+    messages: [
+      {
+        role: 'system',
+        content: buildMinuteSystemPrompt(promptCtx),
+        providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+      },
+      { role: 'user', content: buildMinuteUserPrompt(promptInput) },
+    ],
     temperature: 0.3,
   })
 
@@ -141,6 +150,29 @@ export async function generateMinuteForAgendaV2(params: {
       ? renderTemplateFillToText(object as TemplateFillMinuteOutput)
       : renderFreeFormToText(object as FreeFormMinuteOutput),
   }
+}
+
+// ── Retry helper (transient AI/network failures) ──────────────────────
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  attempts = 3,
+): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts) {
+        const backoffMs = 500 * Math.pow(3, attempt - 1) // 500ms, 1500ms
+        console.warn(`[generateAllMinutesV2] ${label} attempt ${attempt} failed, retrying in ${backoffMs}ms`)
+        await new Promise(resolve => setTimeout(resolve, backoffMs))
+      }
+    }
+  }
+  throw lastError
 }
 
 // ── Batch: all agendas in parallel (max 5 concurrent) ─────────────────
@@ -163,10 +195,13 @@ export async function generateAllMinutesV2(params: {
   while (queue.length > 0) {
     const batch = queue.splice(0, limit)
     const settled = await Promise.allSettled(
-      batch.map(a => generateMinuteForAgendaV2({
-        supabase: params.supabase, ctx, agendaId: a.id,
-        transcriptId: params.transcriptId,
-      })),
+      batch.map(a => withRetry(
+        () => generateMinuteForAgendaV2({
+          supabase: params.supabase, ctx, agendaId: a.id,
+          transcriptId: params.transcriptId,
+        }),
+        `agenda ${a.id}`,
+      )),
     )
     for (const r of settled) {
       if (r.status === 'fulfilled') results.push(r.value)
